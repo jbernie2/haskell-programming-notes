@@ -1,0 +1,315 @@
+Functor - A way to apply a function to a value that is "inside" some other
+          structure
+  class Functor f where
+    fmap :: (a -> b) -> f a -> f b
+
+For the functor type class to be implemented for a type, that type must have a kind of * -> *, meaning that the type must take exactly one type argument.
+  eg. Functor can not be implemented for type Int
+      Int has a kind of Int :: *
+      meaning Int can be any value that has Type int
+
+      Functor can be implemented for type Maybe
+      Maybe has a kind of * -> *
+      meaning that Maybe can contain any type and then can be the `f` in
+      fmap :: (a -> b) -> f a -> f b
+
+      so in the case of
+      fmap show (Just 1)
+        `show` is a function that can take an Int and returns a String (a -> b)
+        `Just 1` is a maybe that contains an Int `f a`
+        `Just "1"` is the value returned by fmap `f b`
+
+Functor Laws
+  Identity - using fmap with the identity function should be the same as passing
+    the value to the identity function
+    fmap id (Just 1) == id (Just 1)
+
+  Composition - if there are two functions f and g, using fmap with f and then
+    with g should have the same result as composing f and g and then using that
+    composition with fmap
+    fmap f . fmap g $ (Just 1) == fmap (f . g) (Just 1) 
+
+  Structure Preservation - The structure containing the value being altered can not     be changed.
+    for Maybe fmap can not take a (Just a) and return a (Nothing). This would be
+    considered changing the structure. Whatever data constructor has been used to
+    construct the type, that same type constructor must also be returned by fmap.
+
+Stacking Functors
+  if there is a functor that contains another functor, the inner functor can be
+  mapped over by composing fmap with itself
+  a = [Just "abc", Nothing, Just "12345"]
+  f = const 'p'
+
+  fmap f a                 = ['p','p','p'] 
+  (fmap . fmap ) f a       = [Just 'p', Nothing, Just 'p'] 
+  (fmap . fmap . fmap) f a = [Just "ppp", Nothing, Just "ppppp"]
+
+  the first example maps over the list, turning each element into a 'p'
+  the second example maps over the Maybes in the list, turning each value in the
+    Maybe into a 'p'
+  the third example maps of the list of characters in each maybe and turns each
+    character in the list into a 'p'
+
+
+  fmap :: (a -> b) -> f a -> f b
+
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  (.) f g a = f (g a)
+
+  innerFmap
+    :: (Int -> String)
+    -> Maybe Int
+    -> Maybe String 
+
+  outerFmap
+    :: (Maybe Int -> Maybe String)
+    -> [Maybe Int]
+    -> [Maybe String]
+
+  (.) outerFmap innerFmap
+    :: (Int -> String)
+    -> [Maybe Int]
+    -> [Maybe String]
+
+  (.) outerFmap innerFmap show [Just 1, Nothing] == [Just "1", Nothing]
+
+
+C H A P T E R   E X E R C I S E S
+
+Determine if a valid functor can be written for the datatype
+
+1. 
+data Bool = False | True
+-- no, Bool has a kind of *, Functors require a kind of * -> *
+
+2.
+data BoolAndSomethingElse a =
+  False' a | True' a
+-- yes, BoolAndSeomthingElse has a kind of * -> *
+instance Functor BoolAndSomethingElse where
+  fmap fn (False' a) = False' $ fn a
+  fmap fn (True' a ) = True' $ fn a
+
+3. 
+data BoolAndMaybeSomethingElse a =
+  Falsish | Truish a
+-- yes, BoolAndSeomthingElse has a kind of * -> *
+instance Functor BoolAndSomethingElse where
+  fmap fn Falsish = Falsish
+  fmap fn (Truish a ) = Truish $ fn a
+
+4.
+newtype Mu f = InF { outF :: f (Mu f) }
+-- no, because Mu has a kind of (* -> *) -> *
+-- the type argument f is a function that takes a single argument: kind (* -> *)
+
+5.
+data D = D (Array Word Word) Int Int
+-- no, because D has a kind of *. It takes no type arguments.
+
+
+Rearrange the arguments to the type constructor of the datatype 
+so the Functor instance works:
+
+1.
+Original
+data Sum a b
+  = First a
+  | Second b
+
+instance Functor (Sum e) where
+  fmap f (First a) = First (f a) 
+  -- this violates the Functor law of maintaining
+  -- structure
+  -- the `First` data constructor uses the first
+  -- type argment. Defining the Functor for (Sum e)
+  -- means that the first type argument (a in the
+  -- type constructor) is part of the structure of
+  -- the type Functor is operating on. Therefore it
+  -- can not be changed. Switching the order of
+  -- a And b in the type constructor would fix this
+
+  fmap f (Second b) = Second b
+
+Fixed
+data Sum b a
+  = First a
+  | Second b
+
+2.
+Original
+data Company a b c
+  = DeepBlue a c
+  | Something b
+
+instance Functor (Company e e') where
+  fmap f (Something b) = Something (f b)
+  -- This violates the Functor law of maintaing the structure
+  -- Functor's can only alter the last type argument in a type
+  -- this definition is attempting to alter `b` (e') which is the second of three
+  -- type arguments in the type constructor
+  -- Making `b` the third type argument is the type constructor would fix this.
+
+  fmap _ (DeepBlue a c) = DeepBlue a c
+
+Fixed
+data Company a c b
+  = DeepBlue a c
+  | Something b
+
+3.
+Original
+data More a b
+  = L a b a
+  | R b a b
+
+instance Functor (More x) where
+  fmap f (L a b a') = L (f a) b (f a')
+  fmap f (R b a b') = R b (f a) b'
+
+  -- both of these definitions have the same problem. Both attempt to change
+  -- the type argument `a`. Functors can only operate on types
+  -- with the Kind of (* -> *), but operating on `a` requires operating on a type
+  -- with the Kind of (* -> * -> *)
+  -- In order to have a Kind of (* -> *) we fix the Type of `a` to `x` when 
+  -- defining a Functor instance for `More` `(More x)`
+  -- Due to `a` being the first type argument of two in the type constructor. It
+  -- can not be changed by a Functor.
+  -- if we swap the order of the type arguments, then the functor defintion is
+  -- valid
+
+Fixed
+data More b a
+  = L a b a
+  | R b a b
+
+
+Write Functor instances for the following datatypes:
+1.
+data Quant a b
+  = Finance
+  | Desk a
+  | Bloor b
+
+instance Functor (Quant x) where
+  fmap _ Finance = Finance
+  fmap _ (Desk a) = Desk a
+  fmap fn (Bloor b) = Bloor $ fn b
+
+2.
+data K a b
+  = K a
+
+instance Functor (K x) where
+  fmap _ (K a) = K a
+
+3.
+newtype Flip f a b
+  = Flip (f b a)
+  deriving (Eq, Show)
+newtype K a b = K a
+
+instance Functor (Flip K a) where
+  fmap fn (Flip (K b)) = Flip (K (fn b))
+
+-- This one is confusing and I had to look up the answer.
+-- I think I kind of know what is going on
+-- The Flip type constuctor is     `Flip f a b`
+-- The Flip data constuctor is `Flip f b a`
+-- and The data constructor of `K` is `K a` (ignoring its second type arg)
+
+-- Although the functor is defined for (Flip K a) the value that acutally gets
+-- passed in to the function is (Flip (K b)) (since Flip flips the arg order (duh))
+-- and then the function (as defined by the Functor def) is (b -> c)
+-- doing `Flip (K (fn b))` 
+--    turns the type (Flip K a b) into (Flip K a c)
+--    by turning the data (Flip (K b)) into (Flip (K c))
+
+4.
+data EvilGoateeConst a b = GoatyConst b
+
+instance Functor (EvilGoateeConst a) where
+  fmap fn (GoatyConst b) = GoatyConst $ fn b
+
+5.
+data LiftItOut f a = LiftItOut (f a)
+instance Functor f => Functor (LiftItOut f) where
+  fmap fn (LiftItOut fa) = LiftItOut $ fmap fn fa
+
+-- the second type argument `a` is inside of the structure `f`
+-- so in order to fmap over `LiftItOut` we also need to fmap over `f a`
+-- in order to fmap over `f a` `f` also has to be a functor.
+
+6.
+data Parappa f g a = DaWrappa (f a) (g a)
+instance (Functor f, Functor g) => Functor (Parappa f g) where
+  fmap fn (DaWrappa fa ga) = DaWrappa (fmap fn fa) (fmap fn ga)
+
+-- this is the same situation as number 5, except there are two things we need
+-- to fmap over inside of the top level type.
+
+7.
+data IgnoreOne f g a b =
+  IgnoringSomething (f a) (g b)
+instance Functor g => Functor (IgnoreOne f g a) where
+  fmap fn (IgnoringSomething fa gb) = IgnoringSomething fa $ fmap fn gb
+
+-- only g has to be a functor. Since `f` operates on `a` and `a` is not the last
+-- type argument, it is part of the structure of the Functor. Since we can only
+-- change `b` and `b` is within the structure of `g`, `g` needs to be a functor
+-- so we can apply a function (`fn`) to `b`.
+
+8.
+data Notorious g o a t =
+  Notorious (g o) (g a) (g t)
+instance Functor g => Functor (Notorious g o a) where
+  fmap fn (Notorious go ga gt) = Notorious go ga $ fmap fn gt
+
+-- basically the same as number 5, except we don't transform anything expect for
+-- `(g t)` because `t` is the last of the type arguments.
+
+9.
+data List a
+  = Nil
+  | Cons a (List a)
+instance Functor List where
+  fmap _ Nil = Nil
+  fmap fn (Cons a (rest)) = Cons (fn a) (fmap fn rest)
+
+-- recursively apply fmap to each element in the list
+
+10.
+data GoatLord a
+  = NoGoat
+  | OneGoat a
+  | MoreGoats (GoatLord a)
+              (GoatLord a)
+              (GoatLord a)
+instance Functor GoatLord where
+  fmap _ NoGoat = NoGoat
+  fmap fn (OneGoat a) = OneGoat $ fn a
+  fmap fn (MoreGoats gl1 gl2 gl3) = MoreGoats 
+                                      (fmap fn gl1)
+                                      (fmap fn gl2)
+                                      (fmap fn gl3)
+-- same as 9, just with some extra branches
+
+data TalkToMe a
+  = Halt
+  | Print String a
+  | Read (String -> a)
+instance Functor TalkToMe where
+  fmap _ Halt = Halt
+  fmap fn (Print s a) = Print s $ fn a
+  fmap fn (Read fn') = Read (fn . fn')
+
+-- the first two parts are straightforward.
+-- for the last one, the data constructor take a function that returns an `a`
+-- so if we fmap over that data constructor, we will need to make a function that
+-- is of type  (String -> a) and transform it into a function that is 
+-- of the type (String -> b) 
+-- the compose function `.` has type (y -> z) -> (x -> y) -> x -> z
+-- which is exactly what we need 
+-- (a -> b) -> (String -> a) -> String -> b
+-- so we compose the function passed into fmap, with the function in the 
+-- data constructor of `Read`

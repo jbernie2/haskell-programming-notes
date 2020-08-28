@@ -1,0 +1,104 @@
+Foldable
+  A type class that describes how to produce a summary value for a given type.
+  This type class is usually applied to data structures
+  Foldable is a way of generalizing a catamorphism
+
+  All types that implement foldable are higher kinded types of kind (* -> *)
+  Eg. [String] or Tree Int
+
+  class Foldable (t :: * -> *) where
+    fold :: Monoid m => t m -> m
+    foldMap :: Monoid m => (a -> m) -> t a -> m
+
+fold
+  `fold` combines the elements of the structure using the Monoid
+  defined for that type.
+  eg `fold ["a", "b", "c"] == "abc"`
+
+foldMap
+  `foldMap` take a function as its first argument. But, unlike `foldr` this
+  this function doees not return a summary value, it returns a Monoid which will
+  then be combined to produce the summary value
+
+  eg. `foldMap Sum [1..5] == Sum {getSum = 15}`
+    `Sum` is a data constructor, but as a function, it produces a `Sum` which has
+    a monoid instance defined for it.
+
+  A function that is not a data constructor can also be applied via foldMap. 
+  However, that function must still produce a Monoid
+  eg.
+    foldMap (*5) (Sum <$> [1,2,3])
+    == foldMap (*5) [Sum 1, Sum 2, Sum 3]
+    == fold [Sum 5, Sum 10, Sum 15]
+    == Sum { getSum = 30 }
+
+
+Identity instance of Foldable
+  instance Foldable Identity where
+    foldr f z (Identity x) = f x z
+
+    foldl f z (Identity x) = f z x
+
+    foldMap f (Identity x) = f x
+
+  Since `Identity` only holds one value there really isn't anything to "summarize"
+  so this just function application.
+
+
+Maybe (Optional) instance of Foldable
+
+  data Optional a = Yep a | Nada 
+  instance Foldable Optional where
+    foldr _ z Nada = z
+    foldl f z (Yep x) = f x z
+
+    foldl _ z Nada = z
+    foldl f z (Yep x) = f z x
+
+    foldMap _ Nada = mempty
+    foldMap f (Yep a) f a
+
+  because `Maybe` or `Optional` does not guarantee that it will contain a value 
+  (Nothing, Nada), `foldMap` must be able to produce a default value in that case.
+
+  looking at the signature of `foldMap`
+    foldMap :: Monoid m => (a -> m) -> t a -> m
+
+  We see that the summary value returned (`m`) is a Monoid.
+  A property of Monoids is that they implement an `mempty` value, or an Identity
+  so in the case where the arguments do not provide a value to return, `foldMap`
+  returns an empty value.
+
+  This also means that type of the `Maybe` must be specified
+
+  `foldMap (+1) Nothing` will result in an error
+  `foldMap (+1) Nothing :: Sum Int` will not, because we are specifying the type of
+  that should be returned from the function is `Sum Int`
+
+
+toList - returns elements of a structure from left to right
+  toList :: t a -> [a]
+
+  toList (1,2) == [2] 
+  similar to `fmap`, `toList` works on types of kind `(* -> *)`, so for type
+  `(,) a b`, `(,) a` is the structure, so `[b]` is the type that gets returned.
+
+
+null - test whether the structure is empty
+  null :: t a -> Bool
+
+  `null` returns `True` for error values like `Left` and `Nothing`
+  eg.
+    null Nothing == True
+
+  However, `null` returns `False` if a structure contains error values
+  eg.
+    null [Nothing, Nothing] == False
+
+  `null` is checking for "emptiness" so while for `Maybe`, `Nothing` is considered
+  empty, for list, the list not being equal to `[]` would constitute a non-null
+  list. Just like how a list of empty lists is not empty
+  null [[]] == False
+
+
+length - returns the size/length of a finite structure as an `Int`

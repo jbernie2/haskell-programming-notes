@@ -1,0 +1,384 @@
+Monad - applicative functors
+
+  Monads allow for functions to be applied to values within a structure.
+  (like a Functor)
+  The difference between Monads and Applicatives or Functors is that
+  the function used in `bind` has context of the structure it is operating over,
+  and can therefore return a value within that structure.
+  These structures that are returned from the function are them combined
+  Monoidally (like an Applicative)
+
+  A monadic function is one that generates more structure after having already
+  been lifted over monadic structure.
+
+  applicative - maps a function that is contained in some structure over some other
+                structure
+
+  functor - maps a function over some structure
+
+class Applicative m => Monad m where
+  (>>=) :: m a -> (a -> m b) -> m b
+  (>>) :: m a -> m b -> m b
+  return :: a -> m a
+
+Monads are nescessarily Applicatives, and Applicatives are nescessarily Functors.
+Monads are defined in terms of Applicative and Functor. 
+Although
+Applicative and Functor can also be defined in terms of a Monad.
+fmap f xs = xs >>= return . f
+
+The main differentiater between Monad and Functor or Applicative is the that Monad
+can alter the structure of the values that it operates over.
+Looking at the signature of join `join :: Monad m => m (m a) -> m a`
+eg.
+  `join [[1,2,3],[4,5,6]] == [1,2,3,4,5,6]`
+
+The functionality of join is used as part of `bind` `(>>=)`
+The signature for `bind` is `(>>=) :: m a -> (a -> m b) -> m b`
+looking at how bind is defined in terms of `join` and `fmap` makes things clearer
+
+  (>>=) :: m a -> (a -> m b) -> m b`
+  ma >>= fn = join $ fmap ma fn 
+
+  let's look at example using a list
+
+  `[1,2,3] >>= (\x -> [x,x]) == [1,1,2,2,3,3]`
+
+  bind takes the list and applies the function to each element in the list
+  `fmap [1,2,3] (\x -> [x,x]) == [[1,1],[2,2],[3,3]]`
+  this results in a list of lists
+
+  Then this result is passed to `join`
+  `join [[1,1],[2,2],[3,3]] == [1,1,2,2,3,3]`
+  join takes the list of lists [[a]] and turns it into a list [a]
+
+
+Monad Misconeptions:
+  Monads are often learned about in the context of the IO Monad. While the IO
+  Monad is important, there is nothing IO specific about Monads.
+    - monads are NOT impure functions
+    - monads are NOT an embedded language for imperative programming in Haskell
+    - monads are NOT a value, they are an algebra
+    - monads are NOT strictly evaluated by default
+
+`do` syntax
+  `do` is syntactic sugar that is used to sequence function calls.
+  `do` implicitly places an `>>` or `*>` operator after every function call
+
+  (>>) :: Monad m      => m a -> m b -> m b
+  (*>) :: Applcative f => f a -> f b -> f b
+
+  `>>` and `*>` take two arguments and return the second
+  these are called "sequencing" commands and can be used to order effectful 
+  functions.
+  
+  eg. These functions are all equivalent
+
+  sequencing :: IO ()
+  sequencing = do
+    putStrLn "blah"
+    putStrLn "another thing"
+
+  sequencing' :: IO ()
+  sequencing' =
+    putStrLn "blah" >>
+    putStrLn "another thing"
+
+  sequencing'' :: IO ()
+  sequencing'' =
+    putStrLn "blah" *>
+    putStrLn "another thing"
+  
+  `>>` and `*>` are equivalent in all cases since all Monads are also Applicatives
+
+`<-` syntax
+  within a `do` block, `<-` can be used instead of `>>=` to set a variable to the
+  value returned by a Monadic function.
+
+  eg. These three are equivalent
+
+  binding :: IO ()
+  binding = do
+    name <- getLine
+    putStrLn name
+
+  binding' :: IO ()
+  binding' =
+    getLine >>= putStrLn
+
+  binding'' :: IO ()
+  binding'' =
+    getLine >>= 
+      (\line -> putStrLn line)
+
+  The third example is important because it illustrates the nested nature of bind
+  (`<-`). For many Monads, like `Maybe` or `Either` if any of the functions return 
+  `Nothing` or `Left` respectively, all further computations in the monad chain are
+  skipped, `Nothing >>= fn` always returns `Nothing`
+
+  This is an important point, because while multiple calls to bind (`<-`) look like
+  independent calls, they are actually all dependent on every bind call before it,
+  even if the output of the previous calls are not used. 
+
+  consider this function
+
+  f :: Maybe String
+  f =
+    a  <- foo
+    _b <- bar
+    c  <- baz
+    pure $ a <> c
+
+  even though _b is not used, if it returns a `Left` or `Nothing` or some other
+  failure value, `c <- baz` will not be run and neither will `pure $ a <> c`
+
+  this function is equivalent to
+
+  f' :: Maybe String
+  f' =
+    foo >>=
+      (\a ->
+        bar >>=
+          (\_b ->
+            baz >>=
+              (\c ->
+                pure $ a <> c
+              )
+          )
+      )
+
+  in this example it is clear that all the calls to bind (`>>=`) are related
+
+Maybe Monad
+  instance Monad Maybe where
+    return x       = Just x
+    (Just x) >>= k = k x
+    Nothing >>= _  = Nothing
+
+  The Maybe Monad allows for the chaining of actions.
+  If anyone of the actions returns `Nothing`, the whole chain returns `Nothing`
+  This is similar to chaining together `fmap` but each step along the way can
+  return a `Maybe`
+
+  eg.
+    greaterThanZero :: Int -> Maybe Int
+    greaterThanZero x
+      | x > 0 = Just x
+      | otherwise = Nothing
+
+    lessThanTen :: Int -> Maybe Int
+    lessThanTen x
+      | x < 10 = Just x
+      | otherwise = Nothing
+
+    (greaterThanZero 11) >>= lessThanTen == Nothing
+    (greaterThanZero -1) >>= lessThanTen == Nothing
+    (greaterThanZero 5)  >>= lessThanTen == Just 5
+
+    If `<$>` or `<*>` were used, you would end up with a `Maybe (Maybe Int)`
+      (you would also have some type errors)
+    but with using Monad you end up with `Maybe Int`
+    Because Monad allows nested structures to be flattened (via join)
+
+
+Either Monad
+
+  instance Functor (Either a) where
+    fmap _  (Left  a) = Left a
+    fmap fn (Right b) = Right $ fn b
+
+  instance Applicative (Either a) where
+    pure b = Right b 
+    Left a   <*> _       = Left a
+    _        <*> Left a  = Left a
+    Right fn <*> Right b = Right $ fn b
+
+  instance Monad (Either a) where
+    return = pure
+    Left a  >>= _  = Left a
+    Right b >>= fn = fn b
+
+  similar to Maybe, any error value is propagated ignoring the function application
+  effectively, the first error terminates all further computation.
+
+
+Monad Laws
+
+  Identity
+    right identity
+      m >>= return == m
+
+    left identity
+      return x >>= f == f x
+
+    `return` adds structure to a value, no matter which structure is applied, it
+    should not affect how function changes the value
+
+  Associativity
+    (m >>= f) >>= g = m >>= (\x -> f x >>= g)
+
+    regrouping the functions should not have any impact on the final result
+
+
+Composing Monads
+  Monad cannot be composed using `.` 
+  (.) :: (b -> c) -> (a -> b) -> a -> c
+  
+  With Monads we would expect the signature to be
+  mcomp :: Monad m => (b -> m c) -> (a -> m b) -> a -> m c
+  
+  but this can't work with `.`  because the second argument (the first function 
+  applied) returns a different value (`m b`) than what the first argument (the 
+  second function applied) expects (`b`)
+
+  Instead we use Kleisli Composition `>=>` (right fish)
+  (>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c
+
+  which looks almost the sames as `mcomp` but with the function order switched
+
+
+Exercise
+
+Monad Instances
+
+1.
+  data Nope a = NopeDotJpg deriving (Eq, Show)
+
+  instance Functor Nope where
+    fmap _ _ = NopeDotJpg
+
+  instance Applicative Nope where
+    pure _ = NopeDotJpg
+    _ <*> _ = NopeDotJpg
+
+  instance Monad Nope where
+    return = pure
+    _ >>= _ = NopeDotJpg
+
+2.
+  data BahEither b a
+    = PLeft a
+    | PRight b
+    deriving (Eq, Show)
+
+  instance Functor (BahEither b) where
+    fmap _ (PRight b) = PRight b
+    fmap f (PLeft a)  = PLeft $ f a
+
+  instance Applicative (BahEither b) where
+    pure = PLeft
+    PRight b <*> _        = PRight b
+    _        <*> PRight b = PRight b
+    PLeft  f <*> PLeft a  = PLeft $ f a
+
+  instance Monad (BahEither b) where
+    return = pure
+    PRight b  >>= _ = PRight b
+    PLeft  a  >>= f = f a
+
+3.
+newtype Id a = Id a
+  deriving (Eq, Ord, Show)
+
+instance Functor Id where
+  fmap f (Id a) = Id $ f a
+
+instance Applicative Id where
+  pure = Id
+  Id f <*> Id a  = Id $ f a
+
+instance Monad Id where
+  return = pure
+  Id a >>= f = f a
+
+4.
+data List a
+  = Nil
+  | Cons a (List a)
+  deriving (Eq, Show)
+
+instance Semigroup (List a) where
+  (<>) Nil Nil = Nil
+  (<>) list Nil = list
+  (<>) Nil list = list
+  (<>) (Cons a list) list' = Cons a (list <> list')
+
+instance Monoid (List a) where
+  mempty = Nil
+  mappend = (<>)
+
+instance Functor List where
+  fmap _ Nil = Nil
+  fmap fn (Cons a (rest)) = Cons (fn a) (fmap fn rest)
+
+instance Applicative List where
+  pure a = Cons a Nil
+  (<*>) Nil _ = Nil
+  (<*>) _ Nil = Nil
+  (<*>) (Cons fn fnList) list = fmap fn list <> (fnList <*> list)
+
+instance Monad List where
+  return = pure
+  Nil >>= _ = Nil
+  Cons a list >>= f = f a <> (list >>= f)
+
+
+Monad Functions
+
+1.
+j :: Monad m => m (m a) -> m a
+j = join
+
+`join` itself is defined as
+join :: Monad m => m (m a) -> m a
+join mma = mma >>= id
+
+what's important to remember here is that the actual concatenating of the Monads
+is handled in each types' definition
+
+bind has the signature `(>>=) :: Monad m => m a -> (a -> m b) -> m b`
+so when we do pass `id` to `>>=` and `m a` is already a nested structure
+bind simply removes the outer layer of the monad.
+for `[[]]`
+`(>>=) :: [[a]] -> ([a] -> [a]) -> [a]`
+
+so previously when we defined a Monad for `List`
+instance Monad List where
+  return = pure
+  Nil >>= _ = Nil
+  Cons a list >>= f = f a <> (list >>= f)
+
+we see that the actual "joining" is happening as part of the definition of `>>='
+
+2.
+l1 :: Monad m => (a -> b) -> m a -> m b
+l1 f ma = ma >>= (pure . f)
+
+3.
+l2 :: Monad m => (a -> b -> c) -> m a -> m b -> m c
+l2 f ma mb = ma >>= (\a -> l1 (f a) mb)
+
+4.
+ap :: Monad m => m a -> m (a -> b) -> m b
+ap = flip (<*>)
+
+5.
+meh :: Monad m => [a] -> (a -> m b) -> m [b]
+meh [] _ = pure []
+meh (a : as) f = f a >>= (\b -> ((:) b) <$> (meh as f))
+
+This one is a little mind bending (I had to look up the answer)
+The interesting things here are the base case and the fmap
+
+We only want one outer Monad, so we can't use `pure` in the recursive case. So 
+pure is only used in the base case to build up the initial `m [b]` list as `m []`
+
+Then in order to add to this list, we have to lift a function over the structure. 
+In this case that function is a partially applied cons `((:) b)` so we use fmap
+to lift cons over the accumulator list (returned from the base case)
+
+
+6.
+flipType :: (Monad m) => [m a] -> m [a]
+flipType mas = meh mas id
+

@@ -1,0 +1,392 @@
+Applicatives are monoidal functors
+  the Applicative type class allows for function application lifted over
+  structure (like Functor). But with Applicative the function we're
+  applying is is also embedded in some structure.
+  
+  All types that implement Applicative also implement Functor.
+
+  class Functor f => Applicative f where
+    pure  :: a -> f a
+    (<*>) :: f (a -> b) -> f a -> f b
+
+Monoidal - The structural part `f` of Applicative is combined as a monoid
+           eg.
+            for a tuple of type (String, Int) 
+              ("a", (+1)) <*> ("b", 2) == ("ab", 3)
+              The first element in the Tuple is combined monoidally
+              The second element is produced through function application
+
+Functor - For a type that implements Applicative, the last type argument
+          in the signature has a function applied to it to produce the
+          new value. The function is lifted over the structure, just like
+          in the Functor typeclass
+          In the previous example, the second element in the Tuple, `2`,
+          is transformed into `3` via a lifting the `(+1)` function over
+          the Tuple structure. 
+
+The way a type implements the Monoidal functionality of the Applicative
+type class  may not be the same as how it is implemented for the Monoid
+definition for that same type
+eg. for Maybe - the handling of the Nothing cases is quite different, but
+    makes sense for the purpose of the typeclass
+
+  instance Monoid a => Monoid (Maybe a) where
+    mempty = Nothing
+    mappend m Nothing = m
+    mappend Nothing m = m
+    mappend (Just a) (Just a') = Just (mappend a a')
+
+  instance Application Maybe where
+    pure = Just
+    Nothing <*> _ = Nothing
+    _ <*> Nothing = Nothing
+    Just f <*> Just a = Just (f a)
+
+Applicative Laws
+  1. Identity
+    pure id <*> v == v
+    eg.
+      pure id <*> [1..5] == [1,2,3,4,5]
+      `pure` signature `a -> f a`
+      `id` signature `a -> a`
+      `<*>` signature `f (a -> b) -> f a -> f b`
+      -- `pure id` takes the function `pure` and wraps it in an `f`, which in this
+      -- case is [ ]. So that creates `[id]`, a list of id functions
+      -- That list of functions can then be applied (using `<*>`) to `[1..5]`
+      -- The `id` function is applied to each element in the list, which then
+      -- returns the same list `[1,2,3,4,5]`
+
+  2. Composition
+    pure (.) <*> u <*> v <*> w
+    == u <*> (v <*> w)
+    == pure (u . v) <*> w
+
+    eg.
+      a = pure (.) <*> [(+1)] <*> [(*2)] <*> [1,2,3]
+        a == [(+1)] <*> ([(*2)] <*> [1,2,3])
+        a == pure ((+1) . (*2)) <*> [1,2,3]
+        a == [(+1) . (*2)] <*> [1,2,3]
+        a == [3,5,7]
+      b = [(+1), (*2)] <*> [1,2,3]
+        b /= a
+        b == [2,3,4,2,4,6]
+
+      `pure` signature `a -> f a`
+      `(.)` signature `(b -> c) -> (a -> b) -> a -> c`
+      `<*>` signature `f (a -> b) -> f a -> f b`
+
+  3. Homomorphism
+    The effect of applying a function that is embedded in some structure to a
+    value that is embedded in some structure should be the same as applying a
+    function to a value with affecting any outside structure
+
+    pure f <*> pure x == pure (f x)
+
+    eg.
+      a = pure (+1) <*> pure 1 :: Maybe Int
+        a == pure ((+1) 1) :: Maybe Int
+        a == Just 2
+
+      a = pure (+1) <*> pure 1 :: Either a Int
+        a == pure ((+1) 1) :: Either a Int
+        a == Right 2
+
+  4. Interchange
+    There should be no effect to the outcome of function application if the order
+    of the function and it's argument are switched.
+
+    u <*> pure y = pure ($ y) <*> u
+
+    eg.
+      a = Just (+2) <*> pure 2
+        a == pure ($ 2) <*> Just (+2)
+        a == Just 4
+
+      -- switching the order of the arguments to `<*>` has no effect on the outcome
+      -- `$` has the signature `(a -> b) -> a -> b`
+      -- `($ 2)` has the signature `(a -> b) -> b` With `2` already being applied
+      -- as the `a` value
+      -- so then `pure ($ 2)` has the signature `Maybe ((a -> b) -> b)`
+      -- and `Just (+2)` has the signature `Maybe (a -> b)`
+      -- 
+      -- in `<*>` - signature `f (x -> y) -> f x -> f y`
+      -- the `x` in first argument (`f (x -> y)`) is `(a -> b)` (the first argument
+      -- of `($ 2)`)
+      -- the `y` is `b` also from `($ 2)`
+      -- the `x` in the second argument `f x` is also `(a -> b)`, but it comes from
+      -- the function `(+2)`
+      -- so `f y` then equals `Just ((+2) $ 2)` or `Just 4`
+
+Applicatives and Monoids
+  For every type that can implement Functor, there is exactly one valid
+  implementation.
+  For Monoid, this is not true. Which is why Int has both the Sum and Product
+  Monoids
+  Since Applicative utilizes both Monoid and Functor, there are multiple valid
+  implementation of Applicative based on how the Monoid part is implemented
+  For example:
+    `data Either e a = Left e | Right a`
+    `data Validation e a = Failure e | Success a`
+
+    These types are the same except for how they implement the Monoid portion of
+    Applicative.
+    for Either      `Left "foo" <*> Left "bar" == Left "foo"`
+    for Validation  'Failure "foo" <*> Failure "bar" == Failure "foobar"`
+
+    in the case of Validation, the errors are Monoidally combined
+    for Either, the second error is ignored and the first is used.
+
+
+Exercises: Lookups
+Make the following expressions type check
+1.
+original:
+  added :: Maybe Integer
+  added =
+    (+3) (lookup 3 $ zip [1,2,3] [4,5,6])
+
+fixed: 
+  added =
+    (+3) <$> (lookup 3 $ zip [1,2,3] [4,5,6])
+
+2.
+original:
+  y :: Maybe Integer
+  y = lookup 3 $ zip [1,2,3] [4,5,6]
+
+  z = Maybe Integer
+  z = lookup 2 $ zip [1,2,3] [4,5,6]
+
+  tupled :: Maybe (Integer, Integer)
+  tupled = (,) y z
+
+fixed: 
+  tupled :: Maybe (Integer, Integer)
+  tupled = (,) <$> y <*> z
+  -- partially apply the tuple constrcutor to `y` using fmap (`<$>`)
+  -- which returns  `Maybe (Integer -> (Integer, Integer))`
+  -- then used apply `<*>` to lift the function over the `Maybe Integer`
+  -- that is returned by `z`
+
+3.
+original:
+  import Data.List (elemIndex)
+  
+  x :: Maybe Int
+  x = elemIndex 3 [1,2,3,4,5]
+
+  y :: Maybe Int
+  y = elemIndex 4 [1,2,3,4,5]
+
+  max' :: Int -> Int -> Int
+  max' = max
+
+  maxed :: Maybe Int
+  maxed = max' x y
+
+fixed:
+  maxed :: Maybe Int
+  maxed = max' <$> x <*> y
+  -- the function `max'` has a signature of `Int -> Int -> Int`
+  -- but `x` and `y` return `Maybe Int`
+  -- so we use fmap (`<$>`) to lift `max'` over the first argument
+  -- (which is of type `Maybe Int`)
+  -- then we use apply (`<*>`) to lift the partially applied `max'`
+  -- of type `Maybe (Int -> Int)` over the second argument.
+  -- (which is also of type `Maybe Int`)
+  -- The `<$>` and `<*>` allow us to ignore the Maybe-ness of the Ints
+  -- and only apply the underlying function `max'` if the two arguments
+  -- are both `Just` otherwise it would return `Nothing`
+
+4.
+original:
+  xs = [1,2,3]
+  ys = [4,5,6]
+
+  x :: Maybe Integer
+  x = lookup 3 $ zip xs ys
+
+  y :: Maybe Integer
+  y = lookup 2 $ zip xs ys
+
+  summed :: Maybe Integer
+  summed = sum $ (,) x y
+
+fixed: 
+  summed :: Maybe Integer
+  summed = sum <$> ((,) <$> x <*> y)
+  -- the type of `sum` is `(Integer, Integer) -> Integer`
+  -- so we fmap/apply `x` and `y` to `(,)` to get
+  -- `Maybe (Integer, Integer)`
+  -- then we fmap `sum` over the result to get `Maybe Integer`
+
+
+Exercise : Writting Applicative Instances
+1.
+newtype Identity a = Identity a
+  deriving (Eq, Ord, Show)
+
+instance Functor Identity where
+  fmap fn (Identity a) = Identity $ fn a
+
+instance Applicative Identity where
+  pure a = Identity a
+  (Identity fn) <*> ida = fmap fn ida
+
+-- This allows for `Identity` to be used as a structure around a value
+-- this is useful when we want to treat multiple values as one value for the 
+-- purpose of function application.
+
+eg. `const <$> [1,2,3] <*> [9,9,9] == [1,1,1,2,2,2,3,3,3]`
+  because `const <$> [1,2,3] == [b -> Int]` (a list of partially applied `const`
+  functions)
+  then when applicative is used, each function in the list is applied to each value
+  producing a list of 9 values (3*3)
+
+  However, if Identity is used
+  `const <$> (Identity [1,2,3]) <*> (Identity [9,9,9]) == Identity [1,2,3]
+  because `const <$> (Identity [1,2,3])` == Identity (b -> [Int])`
+  then when applicative is used, the single function wrapped in Identity is applied
+  to the other singular value (also wrapped in Identity) producing a single value
+  `Identity [1,2,3]`
+
+2.
+newtype Constant a b
+  = Constant { getConstant :: a }
+  deriving (Eq, Ord, Show)
+
+instance Functor (Constant a) where
+  fmap _ (Constant a) = Constant a
+
+instance Monoid a => Applicative (Constant a) where
+  pure _ = Constant mempty 
+  (Constant a) <*> (Constant a') = Constant $ a <> a'
+
+-- This example mostly shows how Applicative handles the structural parts of a type
+-- when they are defined by type variables. (Since Constant throws away the non-
+-- structural part of it's type)
+-- Like Functor, Applicative can only operate on type with Kind (* -> *). This
+-- means that any Types with more than one type variable must include those type
+-- variables in the Applicative instance definition.
+-- Type variables that are structural are NOT combined using the function passed
+-- to `<*>`, they are combined Monoidally. This is why higher-kinded types that
+-- implement Applicative require that all structural type variables implement
+-- Monoid.
+
+-- Things I don't understand
+-- we can do things like 
+  `f = Constant (Sum 1)`
+  `f <*> f == Constant {getConstant = Sum {getSum = 3}}`
+-- which is weird because the signature of applicative is
+  `f (a -> b) -> f a -> f b`
+-- which means that `f` is being treated simultaneously as a partially applied
+-- function (the first argument) and as a fully applied function (second argument)
+-- which kind of makes sense given the type (since Constant just throws away its
+-- second argument) but I am not sure how that really works. 
+
+
+Exercise: Fixer upper
+1.
+original:
+  const <$> Just "hello" <*> "World"
+fixed:
+  const <$> Just "hello" <*> pure "World"
+
+-- the signature of `<*>` is `f (a -> b) -> f a -> f b`
+-- but in the original "World" is not contained in an `f`.
+-- the first argument `Just "hello"` is of type `Maybe String`, so the `f` is
+-- of type `Maybe`
+-- so we wrap the second value in `Maybe` as well, using `pure`
+-- the signature of `pure` is `a -> f a`, and Haskell can imply the type of `f`
+-- because the `f` is already `Maybe` for the first argument.
+
+2.
+original:
+  (,,,) Just 90 <*> Just 10 Just "Tierness" [1,2,3]
+fixed:
+  (,,,) <$> Just 90 <*> Just 10 <*> Just "Tierness" <*> Just [1,2,3]
+
+-- there are several problems here
+-- the first is that not all the arugments are seperated by operators
+-- the second is that not all the arugments are of type `Maybe a` 
+
+
+Exercise : List Applicative
+  module MyList where
+
+  data List a
+    = Nil
+    | Cons a (List a)
+    deriving (Eq, Show)
+
+  instance Functor List where
+    fmap _ Nil = Nil
+    fmap fn (Cons a list) = Cons (fn a) (fmap fn list)
+
+  instance Applicative List where
+    pure a = Cons a Nil
+    (<*>) Nil _ = Nil
+    (<*>) _ Nil = Nil
+    (<*>) (Cons fn fnList) list  = fmap fn list <> (fnList <*> list)
+
+  instance Monoid (List a) where
+    mempty = Nil
+    mappend = (<>)
+
+  instance Semigroup (List a) where
+    (<>) Nil Nil = Nil
+    (<>) list Nil = list
+    (<>) Nil list = list
+    (<>) (Cons a list) list' = Cons a (list <> list')
+
+  examples: 
+  f = Cons (+1) (Cons (*2) Nil)
+  v = Cons 1 (Cons 2 Nil)
+  f <*> v == Cons 2 (Cons 3 (Cons 2 (Cons 4 Nil)))
+
+
+Exercise : ZipList Applicative
+
+  module MyZipList where
+
+  newtype ZipList' a =
+    ZipList' [a]
+    deriving (Eq, Show)
+
+  instance Functor ZipList' where
+    fmap f (ZipList' xs) =
+      ZipList' $ fmap f xs
+
+  instance Applicative ZipList' where
+    pure a = ZipList' $ repeat a
+    ZipList' fs' <*> ZipList' xs' =
+      ZipList' $ zip' fs' xs'
+      where
+       zip' :: [a -> b] -> [a] -> [b] 
+       zip' (f : fs) (x : xs) = f x : zip' fs xs
+       zip' [] _ = []
+       zip' _ [] = []
+
+  eg.
+    zl' = ZipList'
+      z = zl' [(+9), (*2), (+8)]
+      z' = zl' [1..3]
+      z <*> z' == [10,4,11]
+    zl' = ZipList'
+      z = zl' [(+9), (*2), (+8)]
+      z' = pure 1
+      z <*> z' == [10,2,9]
+    zl' = ZipList'
+      z'' = zl' [1, 2]
+      pure id <*> z'' == [1, 2]
+
+  -- The weird thing here is making the identity property work.
+  -- since we are zipping functions and values together, whichever list is shorter
+  -- terminates the computation.
+  -- eg `ZipList' [(+1)] <*> ZipList' [1,2,3] == ZipList' [2]` since the list of
+  -- functions is shorter.
+  -- so for identity the first list needs to be infinite, so no matter how long the
+  -- the second list is, the whole thing gets returned
+  -- eg. `pure id <*> ZipList' [1,2,3,4] == ZipList' [1,2,3,4]`
+  -- this means that `pure` needs to return an infinite list of whatever is passed
+  -- to it.
