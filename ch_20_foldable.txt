@@ -102,3 +102,132 @@ null - test whether the structure is empty
 
 
 length - returns the size/length of a finite structure as an `Int`
+
+  What's weird is that
+    fmap length Just ['a','b','c'] == 1
+    fmap length $ Just ['a','b','c'] == Just 3
+
+  so let's break down the function signatures
+    fmap :: Functor f => (a -> b) -> f a -> f b
+    length :: Foldable t => t a -> Int
+    Just :: a -> Maybe a
+
+  and the applied signatures
+    fmap length :: (Functor f, Foldable t) => f (t a) -> f Int
+
+    fmap length Just :: a -> Int 
+
+    ?????? where did the `f` go in the return value??
+    I think `(->) a` is the `f` and `fmap length Just` is a fully applied function,
+    the return value of which, is another function.
+                      
+  filling in the type variables
+                        length              Just              function returned
+    fmap length Just :: (Maybe a -> Int) -> (a -> Maybe a) -> (a -> Int)
+    fmap             :: (      a -> b  ) -> (f     a     ) -> (f     b )
+
+    `a` is `Maybe a`
+    `b` is `Int`
+    `f` is `(->) a`
+
+    again, a function that only requires one additional argument has the
+    kind (* -> *) and is a valid functor.
+
+  but then why is
+    fmap length Just ['a','b','c'] == 1
+  well, the length of `Just` anything is `1` so no matter what argument is passed
+  the result will be `1`, even `undefined` works
+    fmap length Just undefined == 1
+
+  as for
+    fmap length $ Just ['a','b','c'] == Just 3
+  let's look at the signatures
+    fmap length :: (Functor f, Foldable t) => f (t a) -> f Int
+
+  and `Just ['a','b','c']` is an `f (t a)` so we would expect to get back an `f Int`
+  which in this case is `Just 3`
+  
+
+elem - checks if an element is a member of a structure.
+
+  elem :: Eq a => t a -> Bool
+
+  `elem` returns false for "structural values"
+  elem 3 (Left 3) == False
+  elem 3 (Right 3) == True
+
+  because for `Either`, the `Left` value is part of the structure of the type.
+  Once again, this similar to how `fmap` works for `Either`
+
+maximum - largest element in a structure
+  maximum :: Ord a => t a -> a
+
+minimum - smallest element in a structure
+  minimum :: Ord a => t a -> a
+
+sum :: (Foldable t, Num a) => t a -> a
+product :: (Foldable t, Num a) => t a -> a
+  There's no trickery with these. These functions only apply to nums
+
+
+Exercises
+Implemet thee functions in terms of foldMap or foldr
+
+1. sum :: (Foldable t, Num a) => t a -> a
+  sum' :: (Foldable t, Num a) => t a -> a
+  sum' t = getSum $ foldMap Sum t
+
+2. product :: (Foldable t, Num a) => t a -> a
+  product' :: (Foldable t, Num a) => t a -> a
+  product' t = getProduct $ foldMap Product t
+
+3. elem :: (Foldable t, Eq a) => a -> t a -> Bool 
+  elem' :: (Foldable t, Eq a) => a -> t a -> Bool
+  elem' x xs = getAny $ foldMap (Any . ((==) x)) xs
+
+4. minimum :: (Foldable t, Ord a) -> t a -> Maybe a
+  minimum' :: (Foldable t, Ord a) => t a -> Maybe a
+  minimum' xs =
+    foldr 
+      (\x mAcc -> 
+        case mAcc of
+          Just acc -> Just $ min x acc 
+          Nothing -> Just $ x
+      )
+      Nothing
+      xs
+
+5. maximum :: (Foldable t, Ord a) -> t a -> Maybe a
+  maximum' :: (Foldable t, Ord a) => t a -> Maybe a
+  maximum' xs =
+    foldr 
+      (\x mAcc -> 
+        case mAcc of
+          Just acc -> Just $ max x acc 
+          Nothing -> Just $ x
+      )
+      Nothing
+      xs
+
+6. null :: (Foldable t) => t a -> Bool
+  null' :: (Foldable t) => t a -> Bool
+  null' t = length' t == 0
+
+7. length :: (Foldable t) => t a -> Int
+  length' :: (Foldable t) => t a -> Int
+  length' t = foldr (\_ acc -> acc + 1) 0 t
+
+8. toList :: (Foldable t) => t a -> [a]
+  toList' :: (Foldable t) => t a -> [a]
+  toList' t = foldr (\x l -> x : l) [] t
+
+9. fold :: (Foldable t, Monoid m) => (a -> m) -> t a -> m
+  fold' :: (Foldable t, Monoid m) => t m -> m
+  fold' t = foldMap id t
+
+10. foldMap :: (Foldable t, Monoid m) => (a -> m) -> t a -> m
+  foldMap' :: (Foldable t, Monoid m) => (a -> m) -> t a -> m
+  foldMap' f t = foldr (\x acc -> f x <> acc) mempty t 
+
+
+
