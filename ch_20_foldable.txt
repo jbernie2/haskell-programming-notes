@@ -230,4 +230,63 @@ Implemet thee functions in terms of foldMap or foldr
   foldMap' f t = foldr (\x acc -> f x <> acc) mempty t 
 
 
+Chapter Exercises
+write Foldable instances for the following datatypes:
 
+1.
+data Constant a b = Constant b
+instance Foldable (Constant a) where
+  foldMap f (Constant b) = f b
+
+2.
+data Two a b = Two a b
+instance Foldable (Two a) where
+  foldMap f (Two _ b) = f b
+
+3.
+data Three a b c = Three a b c
+instance Functor (Three a b) where
+  fmap f (Three a b c) = Three a b (f c)
+
+4.
+data Three' a b = Three' a b b
+instance Foldable (Three' a) where
+  foldMap f (Three' _ b b') = f b <> f b'
+
+5.
+data Four' a b = Four' a b b b deriving (Eq, Show)
+instance Foldable (Four' a) where
+  foldMap f (Four' _ b b' b'') = f b <> f b' <> f b''
+
+6.
+Write a filter function for Foldable types using the foldMap function
+
+filterF
+  :: ( Applicative f
+     , Foldable t
+     , Monoid (f a))
+  => (a -> Bool)
+  -> t a
+  -> f a
+filterF fn t = foldMap (\x -> if fn x then pure x else mempty) t
+
+what's really interesting here is that the Monoid `f a` and the Applicative `f` of
+the return value is not specified by the arguments (Notice how there is no `f` in 
+the args, only in the return value). Which means that the return type has to be 
+inferred from usage
+
+Which means all of the following return `True`
+  filterF ((<) 2) [1,2,3,4] == [3,4]
+  filterF ((<) 2) [1,2,3,4] == (First (Just 3))
+  filterF ((<) 2) [1,2,3,4] == (Last (Just 4))
+Based on what is on the right of the `==` the functions behavior changes.
+`[]` `First` and `Last` are all Monoids, and therefore control how `filterF`
+summarizes the result of the computation.
+
+However
+  filterF ((<) 2) [1,2,3,4]
+is not valid because there is no way to infer what kind of Applicative should be
+returned, and no way to determine how to create a summary value (Monoid). This
+function can only be called in a context where the type of the Monoid/Applicative
+can be inferred
+  
