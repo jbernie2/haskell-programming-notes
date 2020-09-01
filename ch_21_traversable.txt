@@ -1,0 +1,88 @@
+Traversable -
+
+  class (Functor t, Foldable t) => Traversable t where
+    traverse
+      :: Applicative f
+      => (a -> f b)
+      -> t a
+      -> f (t b)
+    traverse f = sequenceA . fmap f
+
+  sequenceA :: Applicative f => t (f a) -> f (t a)
+  sequenceA = traverse id
+
+  To implement Traversable, either `traverse` or `sequenceA` needs to be
+  implemented. Otherwise, these default implementations will just run in a loop
+ 
+sequenceA -
+  a function that flips the ordering of structure (check the signature above)
+
+  Using `fmap` it is easy to get result like `f (t a)` eg `[IO String]` when you
+  really want `IO [String]` which is more easily acheivable with `traverse`
+
+
+traverse -
+  similiar to sequenceA except a function can also be applied to the values within
+  the structure passed in. However, it is important to note that unlike `=<<` the
+  strucutre produced by the function is not necessarily the same as the structure
+  that was passed in.
+
+  fmap     ::                  (a -> b)   -> f a -> f b
+  (=<<)    :: Monad m       => (a -> m b) -> m a -> m b
+  traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+
+
+implementing fmap using traverse
+
+  fmap :: Functor f => (a -> b) -> f a -> f b
+  Identity :: a -> Identity a
+  runIdentity :: Identity a -> a
+  traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+
+  fmap' :: Traversable f => (a -> b) -> f a -> f b
+  fmap' f = runIdentity . (traverse (Identity . f))
+
+  -- assuming f is passed in
+  (Identity . f)                          :: a -> Identity b
+  traverse (Identity . f)                 :: t a -> Identity (t b)
+  runIdentity . (traverse (Identity . f)) :: t a -> t b
+
+
+implementing foldMap using traverse
+
+  foldMap :: (Foldable t, Monoid m) => (a -> m) -> t a -> m
+  Constant :: a -> Constant a b
+  getConstant :: Constant a b -> a
+  traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+
+  foldMap' :: (Traversable f, Monoid m) => (a -> m) -> f a -> m
+  foldMap' f = getConstant . (traverse (Constant . f))
+
+  -- assuming f is passed in
+  (Constant . f)                          :: Monoid m => a -> Constant m b
+  traverse (Constant . f)                 :: Monoid m => t a -> Constant m (t b)
+  getConstant . (traverse (Constant . f)) :: Monoid m => t a -> m
+  
+  The fmap example is pretty straight-forward. This one is not.
+
+  The reason foldMap can be defined this way (looking at you, baffling Constant) is
+  because the `f` in traverse is an `Applicative`
+    traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+
+  And as we learned, with Applicative, the structure of them is combined Monoidally
+  This means that `Constant m` is an Applicative.
+    instance Monoid m => Applicative (Constant m)
+  Note that `Constant` is only defined as an Applicative when `m` is already a 
+  Monoid.
+
+  So if we look at `sequenceA` (Which is used by traverse) we can see why this
+  is an important point
+    sequenceA :: (Traversable t, Applicative f) => t (f a) -> f (t a)
+  this function flips the order of the structure. So let's look at how that
+  actually happens.
+
+
+  `Constant a` is implicitly an Applicative here, which means `a` is
+  implicity a Monoid
+
+  -- TODO how does `sequenceA` work ????
