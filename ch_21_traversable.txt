@@ -1,4 +1,4 @@
-Traversable -
+TRAVERSABLE -
 
   class (Functor t, Foldable t) => Traversable t where
     traverse
@@ -32,7 +32,7 @@ traverse -
   traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
 
 
-implementing fmap using traverse
+IMPLEMENTING FMAP USING TRAVERSE
 
   fmap :: Functor f => (a -> b) -> f a -> f b
   Identity :: a -> Identity a
@@ -48,7 +48,7 @@ implementing fmap using traverse
   runIdentity . (traverse (Identity . f)) :: t a -> t b
 
 
-implementing foldMap using traverse
+IMPLEMENTING FOLDMAP USING TRAVERSE
 
   foldMap :: (Foldable t, Monoid m) => (a -> m) -> t a -> m
   Constant :: a -> Constant a b
@@ -75,14 +75,137 @@ implementing foldMap using traverse
   Note that `Constant` is only defined as an Applicative when `m` is already a 
   Monoid.
 
-  So if we look at `sequenceA` (Which is used by traverse) we can see why this
-  is an important point
+  So if we look at `sequenceA` (Which is used by traverse) we can see why it
+  is important that `Constant m` is an Applicative when `m` is a Monoid.
+
+    xs = [Constant (Sum 1), Constant (Sum 2)] :: [Constant (Sum Integer) b]
+    sequenceA xs == Constant (Sum {getSum = 3})
+
+  and breaking down the types
     sequenceA :: (Traversable t, Applicative f) => t (f a) -> f (t a)
-  this function flips the order of the structure. So let's look at how that
-  actually happens.
+    t = [Constant (Sum Integer) b]
+    f = Constant (Sum Integer)
+    a = b
+    sequenceA :: [Constant (Sum Integer) b] -> Constant (Sum Integer) [b]
+
+  since `f` is the partially applied type `Constant (Sum Integer)`
+  when we go from `t (f a)` to `f (t a)` the `f`s have be combined Monoidally
+  and since `instance Monoid m => Applicative (Constant m)` this occurs by
+  summing the Sum types, resulting in
+    Constant (Sum {getSum = 3})
+  
+  but what happens to the `t a`??? why did we just return the `f`??? Well, since the
+  Constant type throws away it's second type argument, the `t a` from the 
+  function signature gets discarded during evaluation.
+    
+  but how does `sequenceA` actually work??? There should be some implementation
+  examples later.
 
 
-  `Constant a` is implicitly an Applicative here, which means `a` is
-  implicity a Monoid
 
-  -- TODO how does `sequenceA` work ????
+EITHER INSTANCE OF TRAVERSABLE
+
+  instance Traversable (Either a) where
+    traverse _ (Left x)  = pure (Left x)
+    traverse f (Right y) = Right <$> f y
+
+notice how it differs from the Functor Instance
+
+  instance Functor (Either a) where
+    fmap _ (Left x) = Left x
+    fmap f (Right y) = Right (f y)
+
+traverse fmaps the Either structure over the result of `f y`
+
+Since the function passed to traverse adds addition structure `f`
+  traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+and we want that additional structure on the outside of the result, we use fmap
+to transform the value inside the structure `f`. This allows us to swap the two
+structures, resulting in `f (t b)` as opposed to the `t (f b)` that would result
+otherwise.
+
+
+TUPLE INSTANCE OF TRAVERSABLE
+
+  instance Traversable ((,) a) where
+    traverse f (x, y) = (,) x <$> f y
+
+  instance Functor ((,) a) where
+    fmap f (x, y) = (x, f y)
+
+notice the difference between traverse and fmap, notice how these instances
+very similar to Either
+
+
+
+TRAVERSABLE LAWS - NATURALITY
+
+h . traverse g = traverse (h . g)
+
+digging into an example, let's say
+
+  g :: a -> Maybe a
+  g = Just
+
+  h :: Maybe [Char] -> Maybe [Char]
+  h = (<*>) (Just ((<>) "foo-"))
+
+  (h . g) :: [Char] -> Maybe [Char]
+
+The book states this law as "behaving unsurprisingly", but I do think it is
+surprising. Given that the signatures of these functions are different
+    traverse (h . g) :: (Traversable t)     => t [Char] -> Maybe (t [Char])
+    h . traverse g   ::                          [Char] -> Maybe [Char]
+
+it makes sense that the type signatures are different, given the value being passed
+to `h` is different in each case
+  for 
+    traverse (h . g)
+  the output of `g` is the input to `h`. Which is pretty straight-forward given
+  than `g` produces a `Maybe a` , and `h` expects a `Maybe [Char]`
+
+  but for
+    h . traverse g
+  the output of `traverse g` is `Maybe (t b)`  which means that the value being
+  passed to `h` is now a `Maybe ( t [Char])` where as before it was just
+  `Maybe [Char]
+
+What makes this confusing is that while all values that can be passed to both
+versions of this function produce the same results. The values that can be accepted
+by both is a subset of the values that can be accepted by either one individually.
+
+  traverse (h . g) ["a", "b"] == Just ["foo-a", "foo-b"]
+  (h . traverse g) ["a", "b"] == Type Error
+
+  traverse (h . g) ["ab"] == Just ["foo-ab"]
+  (h . traverse g) "ab" == Just "-fooab"
+
+  traverse (h . g) "ab" == TypeError
+  (h . traverse g) ["ab"] == TypeError
+
+So this law is not universal and does not work for all functions. It works if the
+functions are general enough to be composed.
+For example: 
+  g :: a -> Maybe a
+  g = Just
+
+  h :: Num a => Maybe a -> Maybe a
+  h = (<*>) (Just (+1))
+
+  (h . g) :: Num b => b -> Maybe b
+
+  traverse (h . g) :: (Traversable t, Num b)     => t b -> Maybe (t b)
+  h . traverse g   :: (Num (t b), Traversable t) => t b -> Maybe (t b)
+
+  traverse (h . g) (Sum 1) == Just (Sum {getSum = 2})
+  (h . traverse g) (Sum 1) == Just (Sum {getSum = 2})
+
+  although there are still problems here
+  traverse (h . g) [1, 2]  == Just [2,3]
+  (h . traverse g) [1, 2]  == (returns a type `(Num b, Num [b]) => Maybe [b]` ??)
+
+Maybe there are examples that work completely? I don't know.
+
+
+
+TRAVERSABLE LAWS - IDENTITY
