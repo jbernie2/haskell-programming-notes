@@ -209,3 +209,82 @@ Maybe there are examples that work completely? I don't know.
 
 
 TRAVERSABLE LAWS - IDENTITY
+
+traverse Identity = Identity
+
+this one is more straight-forward
+  traverse :: (Traversable t, Applicative f) => (a -> f b) -> t a -> f (t b)
+  Identity :: a -> Identity a
+
+  traverse Identity :: (Traversable t) => t a -> Identity (t a)
+
+  traverse Identity [1] == Identity [1]
+
+
+
+TRAVERSABLE LAWS - COMPOSITION
+
+traverse (Compose . fmap g . f) =
+  Compose . fmap (traverse g) . traverse f
+
+  traverse :: (Traversable t, Applicative f) => (a -> f b) -> t a -> f (t b)
+  Compose :: f (g a) -> Compose f g a
+  fmap :: Functor f => (a -> b) -> f a -> f b
+  (.) :: (b -> c) -> (a -> b) -> (a -> c)
+
+for these examples
+  f :: a -> Identity a
+  g :: a -> [a]
+  g a = [a]
+
+breaking down `traverse (Compose . fmap g . f)`
+
+  Compose . fmap g . f :: a -> Compose Identity [] a
+    which is the same as
+      Compose . (fmap g) . f
+    and
+      Compose . ((fmap g) . f)
+    just to be clear
+
+  traverse (Compose . fmap g . f)
+    :: Traversable t => t b -> Compose Identity [] (t b) 
+
+breaking down `Compose . fmap (traverse g) . traverse f`
+  
+  traverse g :: Traversable t => t a -> [t a]
+
+  fmap (traverse g)
+    :: (Traversable t, Functor f) => f (t a) -> f [t a]
+
+  traverse f :: Traversable t => t a -> Identity (t a)
+
+  fmap (travserse g) . traverse f :: t a -> Identity [t a]
+
+  Compose . fmap (traverse g) . traverse f
+    :: Traversable t => Compose Identity [] (t a)
+
+so
+  
+  traverse (Compose . fmap g . f)
+    :: Traversable t => t a -> Compose Identity [] (t a) 
+
+  ==
+
+  Compose . fmap (traverse g) . traverse f
+    :: Traversable t => t a -> Compose Identity [] (t a)
+
+
+These same laws also apply to `sequenceA`
+
+  sequenceA :: (Traversable t, Applicative f) => t (f a) -> f (t a)
+
+  Naturality
+    t . sequenceA = sequenceA . fmap t
+
+  Identity
+    sequenceA . fmap Identity = Identity
+
+  Composition
+    sequence . fmap Compose = Compose . fmap sequenceA . sequenceA
+
+
