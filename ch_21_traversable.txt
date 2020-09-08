@@ -99,7 +99,8 @@ IMPLEMENTING FOLDMAP USING TRAVERSE
   function signature gets discarded during evaluation.
     
   but how does `sequenceA` actually work??? There should be some implementation
-  examples later.
+  examples later. (look at the exerices section to see implementations of 
+  Traversable for Constant and List)
 
 
 
@@ -287,4 +288,192 @@ These same laws also apply to `sequenceA`
   Composition
     sequence . fmap Compose = Compose . fmap sequenceA . sequenceA
 
+
+
+EXERCISES - Write a Traversable instance for the datatype
+
+1.
+newtype Identity a = Identity a
+  deriving (Eq, Ord, Show)
+
+instance Traversable Identity where
+  traverse fn (Identity a) = Identity <$> fn a
+
+since fn is of type `a -> f b`
+and our `t` is Identity
+and we want our result to be `f (Identity b)`
+we use `fmap` to lift the Identity constructor into the `f b` produced by `fn`
+
+
+2.
+newType Constant a b = Constant { getConstant :: a }
+
+instance Traversable (Constant a) where
+  traverse _ (Constant a) = pure $ Constant a
+
+The first argument to traverse is a function, but that function only applies to
+the `b` of type `Constant a b` and since Constant only ever returns the `a`, we
+have no use for the function. However, we do still need to wrap our return value
+in an Applicative. Using `pure` we can say "wrap this `Constant a` in whatever 
+Applicative is required by whoever is calling this function", without actually
+having to know which Applicative instance will be used.
+
+3.
+data Optional a
+  = Nada
+  | Yep a
+  deriving (Show, Eq)
+
+instance Functor Optional where
+  fmap _ Nada    = Nada
+  fmap f (Yep a) = Yep $ f a
+
+instance Foldable Optional where
+  foldMap _ Nada = mempty
+  foldMap f (Yep a) = f a
+
+instance Traversable Optional where
+  traverse _ Nada    = pure Nada
+  traverse f (Yep a) = Yep <$> f a
+
+Similar to Constant, in that some cases we do not use the function passed in. So we
+use `pure` to infer what the Applicative type is that should be returned.
+
+4.
+data List a
+  = Nil
+  | Cons a (List a)
+  deriving (Eq, Show)
+
+instance Semigroup (List a) where
+  (<>) Nil Nil = Nil
+  (<>) list Nil = list
+  (<>) Nil list = list
+  (<>) (Cons a list) list' = Cons a (list <> list')
+
+instance Monoid (List a) where
+  mempty = Nil
+  mappend = (<>)
+
+instance Functor List where
+  fmap _ Nil = Nil
+  fmap fn (Cons a (rest)) = Cons (fn a) (fmap fn rest)
+
+instance Applicative List where
+  pure a = Cons a Nil
+  (<*>) Nil _ = Nil
+  (<*>) _ Nil = Nil
+  (<*>) (Cons fn fnList) list = fmap fn list <> (fnList <*> list)
+
+instance Foldable List where
+  foldMap _ Nil           = mempty
+  foldMap f (Cons a list) = f a <> foldMap f list
+
+instance Traversable List where
+  traverse _ Nil           = pure Nil
+  traverse f (Cons a list) = Cons <$> f a <*> traverse f list
+
+This one is interesting for it's use of `<*>` Since the Cons data constructor
+has two arguments, both of which need to be transformed, we use Applicative
+to apply the first argument
+  Cons <$> f a
+which produces
+  Maybe (List String -> List String)
+and then we use apply `<*>` to lift that function over a recursive call to
+traverse (which will eventually return `Just Nil` once it hits the end of the list
+Remeber that the type of apply `<*>` is
+  (<*>) :: f (a -> b) -> f a -> f b
+so 
+  Cons <$> f a
+produces 
+  Maybe (List String -> List String)
+which is our 
+  f (a -> b)
+and 
+  traverse f list
+produces
+  Maybe (List a)
+which is used as our `f a` so then we get an `f b` as a result
+
+5.
+data Three a b c = Three a b c deriving (Eq, Show)
+
+instance Functor (Three a b) where
+  fmap f (Three a b c) = Three a b (f c)
+
+instance Traversable (Three a b) where
+  traverse f (Three a b c) = Three a b <$> f c
+
+in contrast to `List` this implementation of `traverse` does not require an `apply`
+since only one of the arguments to the `Three` data constructor needs to be
+transformed. So we can simply `fmap` the partially applied constructor over the 
+the return of `f c` producing an `f (Three a b d)` where `d` is the value returned
+inside the structure produced by `f` since `f :: (c -> f' b)`
+
+6.
+Data Pair a b = Pair a b
+
+instance Traversable (Pair a) where
+  traverse f (Pair a b) = Pair a <$> f b
+
+this is very similar to the implementation for `Three`
+
+7.
+data Big a b = Big a b b deriving (Eq, Show)
+
+instance Traversable (Big a) where
+  traverse f (Big a b b') = Big a <$> f b <*> f b'
+
+this is similar to the implementation for List, but a little simpler
+
+8.
+data Bigger a b = Bigger a b b b deriving (Eq, Show)
+
+instance Traversable (Bigger a) where
+  traverse f (Bigger a b b' b'') = Bigger a <$> f b <*> f b' <*> f b''
+
+this is very similar to the implementation of Big, just Bigger
+
+9.
+data S n a = S (n a) a deriving (Eq, Show)
+
+instance Functor n => Functor (S n) where
+  fmap f (S na a) = S (fmap f na) (f a)
+
+instance Foldable n => Foldable (S n) where
+  foldMap f (S na a) = foldMap f na <> f a
+
+instance Traversable n => Traversable (S n) where
+  traverse f (S na a) = S <$> (traverse f na) <*> f a
+
+since `n` also implements Traversable, this one was actually pretty straight
+forward. Just call the instance of traverse that is implemented for `n`
+
+10.
+data Tree a
+  = Empty
+  | Leaf a
+  | Node (Tree a) a (Tree a)
+  deriving (Eq, Show)
+
+instance Functor Tree where
+  fmap _ Empty = Empty
+  fmap f (Leaf a) = Leaf $ f a
+  fmap f (Node leftTree a rightTree) =
+    Node (fmap f leftTree) (f a) (fmap f rightTree)
+
+instance Foldable Tree where
+  foldMap _ Empty = mempty
+  foldMap f (Leaf a) = f a
+  foldMap f (Node leftTree a rightTree) =
+    (foldMap f leftTree) <> f a <> (foldMap f rightTree)
+
+  foldr _ acc Empty = acc
+  foldr f acc (Leaf a) = f a acc
+  foldr f acc (Node lt a rt) = foldr f (f a (foldr f acc rt) ) lt
+
+instance Traversable Tree where
+  traverse _ Empty = pure Empty
+  traverse f (Leaf a) = Leaf <$> f a
+  traverse f (Node lt a rt) = Node <$> traverse f lt <*> f a <*> traverse f rt
 
