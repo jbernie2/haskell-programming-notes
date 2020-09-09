@@ -1,0 +1,78 @@
+Reader
+
+
+Fmapping functions over functions
+
+  we've seen function composition
+    f :: Int -> Int
+    g :: Int -> Int
+    f . g :: Int -> Int
+
+  but you can also use fmap to compose functions
+    f <$> g :: Int -> Int
+  This can happen because the function operator `->` is a valid functor when applied
+  to one argument. We saw this in chapter 19.
+  so breaking down the types we get
+
+    (<$>) :: (a -> b) -> f a -> f b
+    f <$> g
+
+    a :: Int
+    b :: Int
+    f :: ((->) Int)
+
+  since `g` is of type `Int -> Int` that makes the `f` in `f a` `((->) Int)` and the
+  `a` in `f a` Int
+
+  so what this means is that `fmap` takes a function `(a -> b)` and an `f a` where
+  `f` is a partially applied function, and returns a function that is the
+  composition of the two functions passed in.
+
+
+Applying functions over functions
+
+  similar to how we can use fmap to compose functions, we can also use apply `<*>`
+  `->` is not only a Functor, but also an Applicative
+
+    (+) :: Int -> Int -> Int
+    f :: Int -> Int
+    g :: Int -> Int
+    (<$>) :: (a -> b) -> f a -> f b
+    (<*>) :: f (a -> b) -> f a -> f b
+
+    (+) <$> f <*> g
+
+  breaking down the types
+
+    (<$>) :: ( a  -> (     b    )) ->     f       a  ->      f           b
+
+              Int -> (Int -> Int)  -> ((->) Int) Int -> ((->) Int) (Int -> Int))
+    (<$>)             (+)                   f
+  
+  and now that we have something of the form `f (a -> b)` we can use `<*>` to lift
+  it over other values.
+
+    (+) <$> f <*> g :: Int -> Int
+
+    (<*>) ::        f    (  a ->  b ) ->      f       a   ->     f       b
+             (((->) Int) (Int -> Int) -> (((->) Int) Int) -> ((->) Int) Int
+
+  which is equivalent to
+
+    (\x -> (+) (f x) (g x))
+
+  The arguemnt `x` is passed to both `f` and `g`. This occurs because of how
+  partially applied functions are combined monoidally. But how does that work??
+
+  consider this
+    f <> g
+  what does it mean? Well, its the same as combining any other structure.
+  In this case, by combining these functions we take two functions that take one
+  argument each and combine them to create one function that takes one argument.
+  After being supplied that argument it applies that argument to each function
+  and then monoidally combines the result.
+  Something like this:
+
+    instance Semigroup b => ((->) a b) where
+      f <> f' = (\x -> f x <> f x')
+
