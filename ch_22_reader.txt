@@ -1,7 +1,7 @@
 Reader
 
 
-Fmapping functions over functions
+Fmapping functions over functions with <$>
 
   we've seen function composition
     f :: Int -> Int
@@ -29,7 +29,7 @@ Fmapping functions over functions
   composition of the two functions passed in.
 
 
-Applying functions over functions
+Applying functions over functions with <*>
 
   similar to how we can use fmap to compose functions, we can also use apply `<*>`
   `->` is not only a Functor, but also an Applicative
@@ -62,7 +62,8 @@ Applying functions over functions
     (\x -> (+) (f x) (g x))
 
   The arguemnt `x` is passed to both `f` and `g`. This occurs because of how
-  partially applied functions are combined monoidally. But how does that work??
+  partially applied functions are combined monoidally as part of their
+  implementation of the Applicative instance. But how does that work??
 
   consider this
     f <> g
@@ -75,4 +76,53 @@ Applying functions over functions
 
     instance Semigroup b => ((->) a b) where
       f <> f' = (\x -> f x <> f x')
+
+  then, looking at the Functor and Applicative instances for ((->) a) we can see
+  how a single argument `x` is passed to all functions being combined via fmap
+  and apply. 
+
+    instance Functor ((->) a) where
+      fmap f f' = (\x -> f (f' x))
+
+    instance Applicative ((->) a) where
+      pure x = const x
+      f <*> f' = (\x -> f x (f' x))
+
+  Which explains how passing a single argument to the function
+    (+) <$> (+10) <*> (*2)
+  is equivalent to 
+    (\x -> (x+10) + (x*2))
+
+
+
+Composing Functions with Monads
+
+  consider the following functions
+   
+    f :: Integer -> Integer
+    f = (+10)
+
+    g :: Integer -> Integer
+    g = (*2)
+
+    fg :: Integer -> Integer
+    fg = do
+      a <- f
+      b <- g
+      return (a + b)
+
+  but how `a` and `b` be set equal to paritally applied functions??
+  remember that `<-` is just syntactic sugar for bind `>>=` so
+  the above function is equivalent to
+    
+    fg' :: Integer -> Integer
+    fg' =
+      (\x ->
+        f x >>= (\a -> 
+          g x >>= (\b -> 
+            return (a + b)
+          )
+        )
+      )
+
 
