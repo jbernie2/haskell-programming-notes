@@ -1,5 +1,13 @@
-Reader
+Reader - 
+  Reader is a pattern that passes a single argument to multiple functions. This
+  is used by many applications to make environment variables accessible to many
+  functions without having to explicity pass them as arguments.
 
+  Reader utilizes the Functor, Applicative, and Monad instances defined for the
+  function operator `->`
+
+  newtype Reader r a = 
+    Reader { runReader :: r -> a }
 
 Fmapping functions over functions with <$>
 
@@ -28,6 +36,12 @@ Fmapping functions over functions with <$>
   `f` is a partially applied function, and returns a function that is the
   composition of the two functions passed in.
 
+  looking at the types of `fmap` and `.` we see they are essentially the same
+
+    (.)   :: (b -> c) -> (a -> b) -> (a -> c)
+    (<$>) :: (b -> c) -> f b      -> f c
+
+  if you replace `a ->` with `f`, then the definitions are exactly the same.
 
 Applying functions over functions with <*>
 
@@ -125,4 +139,197 @@ Composing Functions with Monads
         )
       )
 
+The Monad instance for functions
 
+  in addition to using Monad to compose functions, it can also be used to create
+  function chains that pass along the result of the previous function in the chain.
+
+  for example if we want to do
+    h :: Int -> Int
+    h x = (x + 10) + x
+
+  you could do 
+    h' = (+) <$> (+10) <*> id
+
+  or you could use Monad to do this
+
+    h'' = (+10) >>= (+)
+
+  and with Monad you can keep chaining functions, so if you wanted something like
+
+    n :: Int -> Int
+    n x = ((x + 10) + x) * x
+
+  you could write that easily using Monad
+
+    n' = (+10) >>= (+) >>= (*)
+
+
+Reader 
+
+  Reader is a newtype wrapper for the function type
+
+    newtype Reader r a = 
+      Reader { runReader :: r -> a }
+
+  This is done to make it explicit when this pattern is being used.
+
+  The Functor instance for Reader is the same as it is for the function type `->`
+  expect with the return wrapper back in a Reader type
+
+    instance Function (Reader r) where
+      fmap :: (a -> b) -> Reader r a -> Reader r b
+      fmap f (Reader ra) = Reader $ \r -> f (ra r)
+
+  or you could also make it
+
+      fmap f (Reader ra) = Reader $ f . ra
+
+  since `fmap` is equivalent to composition (`.`) for functions
+
+
+Exercise: Ask
+
+  ask :: Reader a a
+  ask =  Reader id
+
+  if the two type arguments to Reader `r` and `a` and we want `Reader a a` we need
+  a function that takes one argument, and always returns a value of the same type.
+  Since there are no constraints on the types that can be passed into Reader. The
+  function must be `id` since we have no other information about the types.
+
+Exercise: Reading comprehension
+
+  Write liftA2
+
+    myLiftA2 :: Applicative f => (a -> b -> c) -> f a -> f b -> f c
+    myLiftA2 fn fa fb = fn <$> fa <*> fb
+
+  write the following function
+
+    asks :: (r -> a) -> Reader r a
+    asks f = Reader f
+
+  implement the Applicative for Reader
+
+    instance Applicative (Reader r) where
+      pure :: a -> Reader r a
+      pure a = Reader $ const a
+
+      (<*>) :: Reader r (a -> b)
+            -> Reader r a
+            -> Reader r b
+      (Reader rab) <*> (Reader ra) =
+        Reader $ \r -> rab r (ra r)
+
+
+Exercise: Reader Monad
+
+1. Implement the Reader Monad
+
+  instance Monad (Reader r) where
+    return :: a -> Reader r a
+    return = pure
+
+    (>>=) :: Reader r a
+          -> (a -> Reader r b)
+          -> Reader r b
+    Reader ra >>= aRb = Reader $ \r -> (runReader (aRb (ra r))) r
+
+  There are a couple of weird things going on here
+  First, the function returns a `Reader r b`, but in order to get the `r` we need
+  to create an anonymous function, so the following does not work
+
+    Reader ra >>= aRb = \r -> aRb (ra r)
+
+  because the return value of the is `(r -> Reader r b)`
+  which also means that this will not work
+  
+    Reader ra >>= aRb = Reader $ \r -> aRb (ra r)
+
+  because that returns a type of `Reader r (r -> Reader r b)`
+  So how do we prevent the nesting of the `Reader` type? We need to get that
+  `b` out of that inner `Reader`. Looking at the type for `Reader`
+
+    newtype Reader r a = 
+      Reader { runReader :: r -> a }
+
+  RunReader is an accessor function that returns the function `r -> a`
+  we need to use that to extract the function from the inner `Reader` produced
+  by the Monadic function.
+  So now we try
+
+    Reader ra >>= aRb = Reader $ \r -> runReader (aRb (ra r))
+
+  but that's not quite right either. The return of this function is of type
+
+  `Reader r (r -> b)` 
+
+  since now the anonymous function returns a function that is of the type
+  
+  `(r -> r -> b)`
+
+  so we need to get rid of one of those `r`s. To do that we need to pass an
+  `r` to the function extracted from the inner `Reader`
+
+    Reader ra >>= aRb = Reader $ \r -> (runReader (aRb (ra r))) r
+
+  now this looks right, and returns the correct type.
+
+  The most important take-away here is how to extract the inner Reader using
+  `runReader` This is the part that stumped me the most. So remember to look at the
+  type definition of the type you are writing a Monad instance for to see how
+  you can manipulate the type to get what you need.
+
+2. Rewrite the monadic getDogRm to use your Reader datatype
+
+  newtype HumanName
+    = HumanName String
+    deriving (Eq, Show)
+
+  newtype DogName
+    = DogName String
+    deriving (Eq, Show)
+
+  newtype Address
+    = Address String
+    deriving (Eq, Show)
+
+  data Person = Person
+    { humanName :: HumanName
+    , dogName :: DogName
+    , address :: Address
+    } deriving (Eq, Show)
+
+  data Dog = Dog
+    { dogsName :: DogName
+    , dogsAddress :: Address
+    } deriving (Eq, Show)
+ 
+  -- original    
+  getDogRM :: Person -> Dog
+  getDogRM = do
+    name <- dogName
+    addy <- address
+    return $ Dog name addy
+
+  -- new one
+  getDogRM' :: Reader Person Dog
+  getDogRM' = Reader $ Dog <$> dogName <*> address
+
+  So what's happening here?
+
+  `Dog` is a constructor that takes a `DogName` and an `Address` 
+  we compose these functions and the result is another function
+    Dog <$> dogName <*> address
+  returns a function of type (Person -> Dog)
+
+  we pass that function to the `Reader` constructor. `Reader` takes one argument,
+  a function (r -> a), the type of the first argument to the function passed to
+  Reader, and the type returned after the first argument is passed becomes the
+  type arguments to the Reader type. soooo a function of type
+    (Person -> Dog)
+  when passed to Reader, creates the type
+    Reader Person Dog
+
+  really, all Reader is is a way to wrap funciton application into a type
