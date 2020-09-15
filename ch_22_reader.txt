@@ -164,6 +164,54 @@ The Monad instance for functions
 
     n' = (+10) >>= (+) >>= (*)
 
+Defining Monad in terms of Applicative
+
+  In the general case, Monad can not be defined in terms of Applicative because
+  we have no knowledge of what structure we are lifting over.
+  For the specific case of functions, we have more leeway
+
+  take the definitions of `<*>` and `>>=`
+
+    (<*>) :: f (a -> b) -> f a -> f b
+    (>>=) :: m a -> (a -> m b) -> m b
+
+  since we know that `f` and `m` are of the type `((->) c)` we can write them as
+
+    (<*>) :: (c -> a -> b) -> (c -> a) -> (c -> b)
+    (>>=) :: (c -> a) -> (a -> c -> b) -> (c -> b)
+
+  and if look at the reverse bind `=<<` the type signature become more similar
+
+    (<*>) :: (c -> a -> b) -> (c -> a) -> (c -> b)
+    (=<<) :: (a -> c -> b) -> (c -> a) -> (c -> b)
+
+  under normal circumstances turning a type of
+    f (a -> b)
+  into
+    (a -> f b)
+  would be difficult, but since this is the function instance and these types
+  are really
+    (c -> a -> b)
+  and
+    (a -> c -> b)
+
+  we can write a function that makes them equal
+    flip :: (x -> y -> z) -> (y -> x -> z)
+    flip z = (\y x -> z x y)
+
+  so now
+    (<*>)             :: (c -> a -> b) -> (c -> a) -> (c -> b)
+
+    (>>=)             :: (c -> a) -> (a -> c -> b) -> (c -> b)
+    (fa >>= aFb)       = flip aFb <*> fa
+
+    (flip aFb <*> fa) :: (c -> a -> b) -> (c -> a) -> (c -> b)
+  
+  By showing this, we can see that the Applicative instance for functions is 
+  equivalent to the Monad instance. Which makes the Monad instance no more
+  powerful than the Applicative instance. This is not the case for most types
+  but since the order of arguments in functions are easily swapped, it is possible
+  to define Monad in terms of Applicative.
 
 Reader 
 
@@ -332,4 +380,6 @@ Exercise: Reader Monad
   when passed to Reader, creates the type
     Reader Person Dog
 
-  really, all Reader is is a way to wrap funciton application into a type
+  really, all Reader is is a way to wrap function composition into a type
+
+
