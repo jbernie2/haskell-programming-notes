@@ -46,6 +46,7 @@ Fmapping functions over functions with <$>
 Applying functions over functions with <*>
 
   similar to how we can use fmap to compose functions, we can also use apply `<*>`
+
   `->` is not only a Functor, but also an Applicative
 
     (+) :: Int -> Int -> Int
@@ -58,10 +59,10 @@ Applying functions over functions with <*>
 
   breaking down the types
 
-    (<$>) :: ( a  -> (     b    )) ->     f       a  ->      f           b
+    (<$>) :: ( a  -> (     b   )) ->     f       a    ->      f           b
 
-              Int -> (Int -> Int)  -> ((->) Int) Int -> ((->) Int) (Int -> Int))
-    (<$>)             (+)                   f
+             Int -> (Int -> Int)  -> (((->) Int) Int) -> (((->) Int) (Int -> Int))
+    (<$>)    [        (+)      ]      [    f   ]   
   
   and now that we have something of the form `f (a -> b)` we can use `<*>` to lift
   it over other values.
@@ -125,7 +126,7 @@ Composing Functions with Monads
       b <- g
       return (a + b)
 
-  but how `a` and `b` be set equal to paritally applied functions??
+  but how are `a` and `b` be set equal to paritally applied functions??
   remember that `<-` is just syntactic sugar for bind `>>=` so
   the above function is equivalent to
     
@@ -223,7 +224,7 @@ Reader
   This is done to make it explicit when this pattern is being used.
 
   The Functor instance for Reader is the same as it is for the function type `->`
-  expect with the return wrapper back in a Reader type
+  except with the return wrapped back in a Reader type
 
     instance Function (Reader r) where
       fmap :: (a -> b) -> Reader r a -> Reader r b
@@ -383,3 +384,134 @@ Exercise: Reader Monad
   really, all Reader is is a way to wrap function composition into a type
 
 
+Chapter Exercises -- there's a lot of preamble here, so I'll leave comments
+where the exercises are
+
+  module Readers.ReaderPractice where
+
+  import Data.Maybe
+
+  x :: [Integer]
+  x = [1, 2, 3]
+
+  y :: [Integer]
+  y = [4, 5, 6]
+
+  z :: [Integer]
+  z = [7, 8, 9]
+
+  -- implement 
+  -- zip x and y and use 3 as lookup
+  xs :: Maybe Integer
+  xs = lookup 3 $ zip x y
+
+  -- implement 
+  -- zip y and z and use 6 as lookup
+  ys :: Maybe Integer
+  ys = lookup 6 $ zip y z
+
+  -- implement 
+  -- zip x and y and use 4 as lookup
+  zs :: Maybe Integer
+  zs = lookup 4 $ zip x y
+
+  -- implement 
+  -- zip x and z and take variable as lookup
+  z' :: Integer -> Maybe Integer
+  z' n = lookup n $ zip x z
+
+  -- implement 
+  -- make a tuple of xs and ys
+  x1 :: Maybe (Integer, Integer)
+  x1 = (,) <$> xs <*> ys
+
+  -- implement 
+  -- make a tuple of ys and zs
+  x2 :: Maybe (Integer, Integer) 
+  x2 = (,) <$> ys <*> zs
+
+  -- implement
+  -- take an argument and make a tuple of two application of z`
+  x3 :: Integer -> (Maybe Integer, Maybe Integer)
+  x3 x' = (z' x', z' x')
+
+  -- implement
+  -- take a tuple and add the values
+  summed :: Num c => (c, c) -> c
+  summed = uncurry (+) 
+
+  -- implement
+  -- lift Boolean conjunction (&&) over two partially applied functions 
+  -- (>3) and (<8)
+  bolt :: Integer -> Bool
+  bolt = (&&) <$> (>3) <*> (<8)
+
+  sequA :: Integral a => a -> [Bool]
+  sequA m = sequenceA [(>3), (<8), even] m
+
+  s' :: Maybe Integer
+  s' = summed <$> ((,) <$> xs <*> ys)
+
+
+  main :: IO ()
+  main = do
+    print $
+      sequenceA [Just (3 :: Integer), Just 2, Just 1]
+
+    print $ sequenceA [x, y]
+    print $ sequenceA [xs, ys]
+    print $ summed <$> ((,) <$> xs <*> ys)
+    print $ fmap summed ((,) <$> xs <*> zs)
+    print $ bolt 7
+    print $ fmap bolt z
+
+    print $ sequA (7 :: Integer)
+
+    -- 1. fold boolean conjunction operator over the list of results of 
+    --    sequA (applied to some value)
+    print $ foldr (&&) True (sequA (4 :: Int))
+
+    -- 2. apply sequA to s'
+    print . sequA $ fromMaybe 0 s'
+
+    -- 3. Apply bolt to ys
+    print . bolt $ fromMaybe 0 ys
+
+
+Rewriting Shawty - Use ReaderT to avoid implicity passing the database connection
+                   to App
+
+original
+  main :: IO ()
+  main = do
+    rConn <- R.connect R.defaultConnectInfo
+    scotty 3000 (app rConn)
+
+fixed
+
+  runApp :: ReaderT R.Connection IO ()
+  runApp = ReaderT (\r -> scotty 3000 (app r))
+
+  main :: IO ()
+  main = do
+    rConn <- R.connect R.defaultConnectInfo
+    runReaderT runApp rConn 
+
+This one seemed kind of arbitrary to me. Since we are still explicitly passing
+the database connection to the `app` function.
+I would have expected the signature of `app` to change so that the connection
+wasn't explicity passed in, but whatever.
+I had to look up this answer. I see where it's coming from in using ReaderT to
+do something, but I don't think the description of the problem is accurate.
+
+I think the description should be either
+
+write a function `runApp` with signature 
+  runApp :: ReaderT R.Connection IO ()
+and use that in main
+
+or
+
+given this function
+  RunReaderT runApp Conn
+write runApp and use it in main

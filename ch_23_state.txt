@@ -1,0 +1,76 @@
+State
+
+  newtype State s a =
+    State { runState :: s -> (a, s) }
+
+
+Using State to roll dice
+  intToDie :: Int -> Die
+  state :: Monad m => (s -> (a, s)) -> StateT s m a
+  randomR :: (Random a, RandomGen g) => (a, a) -> g -> (a, g)
+
+  rollDie :: State StdGen Die
+  rollDie = state $ do
+    (n, s) <- randomR (1, 6)
+    return (intToDie n, s)
+
+  so what's going on in `rollDie`? 
+  since `state` only takes one argument `(s -> (a, s))`, everything after `$` must
+  return something of that type. `randomR(1, 6)` is a partially applied function,
+  so that checks out. However, we also have a `return` in there, which would make
+  the return type `(s -> m (a, s))` wouldn't it? Since the type of return is
+    return :: Monad m => a -> m a
+  but if we look at the type of
+    rollDie'' = do
+      (n, s) <- randomR (1, 6)
+      return (intToDie n, s)
+  it's 
+    (RandomGen b) => b -> (Die, b)
+
+  so where did the Monad go?
+  The Monad here is the partially applied function. If we do the following
+    rollDie''' = do
+      (n, s) <- randomR (1, 6)
+      (intToDie n, s)
+  we get an error for trying to return 
+    (Die, s)
+  when we should be returning
+    s -> (Die, s)
+
+  The simplified version of `rollDie` makes a lot more sense
+    rollDie' :: State StdGen Die
+    rollDie' =
+      intToDie <$> state (randomR (1, 6))
+
+  `randomR (1, 6)` is a partially applied function, which is the first argument
+  to `state` which then makes `StateT s m a`, and then we can `fmap` over that type
+  to get `StateT s m Die` since fmap only applies to the last type argument in a 
+  type signature.
+
+
+Using State to Roll Three Dice
+
+  rollDieThreeTimes' :: State StdGen (Die, Die, Die)
+  rollDieThreeTimes' =  liftA3 (,,) rollDie rollDie rollDie
+
+  evalState rollDieThreeTimes' (mkStdGen 0) == (DieSix, DieSix, DieFour)
+
+  But what is going on here?
+  What's confusing to me is how the state is preserved through each iteration of
+  `rollDie`. I understand the purpose of the State type is to preserve that state,
+  but how exactly is that happening?
+
+  for example
+    (liftA3 (,,) (+1) (+2) (+3)) 5 == (6,7,8)
+  Which shows that liftA3 is not carrying state between functions
+
+  So what is State Doing?
+  If we look at the `state` function signature
+    state :: Monad m => (s -> (a, s)) -> StateT s m a
+  we see there is a Monad as part of the type StateT. I suspect this Monad is what
+  allows the state value to be carried over between calls, since by definition a
+  Monad allows for previous values to be used in subsequent calculations. Exactly
+  how that happens I am not sure.
+
+  
+  
