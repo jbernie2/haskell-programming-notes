@@ -69,8 +69,100 @@ Using State to Roll Three Dice
     state :: Monad m => (s -> (a, s)) -> StateT s m a
   we see there is a Monad as part of the type StateT. I suspect this Monad is what
   allows the state value to be carried over between calls, since by definition a
-  Monad allows for previous values to be used in subsequent calculations. Exactly
-  how that happens I am not sure.
+  Monad allows for previous values to be used in subsequent calculations. 
+  
+    return :: a -> State s a
+    return a = state (\s -> (a, s))
 
+    (>>=) :: State s a -> (a -> State s b) -> State s b
+    p >>= k = state $ \s0 ->
+      let (a, s1) = runState p s0
+      in runState (k a) s1
+
+  This is the implementation of Monad for the State type. Remember that
+    newtype State s a = State { runState :: s -> (a, s) }
+  We see from the implemenation of bind how when transforming a `State s a` to a
+  `State s b` the state is updated to pass along the changes that have occurred.
+
+  Also, since this implementation of Monad does not use `<$>`, or `<*>`, and since
+  Functor and Applicative can be implemented using Monad, it is easy to see how
+  `liftA3` could allow for the preservation of state between calls to the State
+  type.
   
   
+Exercises: Roll your own
+1. 
+Refactor rollsToGetTwenty so that the limit is an argument to the function:
+  rollsToGetN :: Int -> StdGen -> Int
+  rollsToGetN = undefined
+
+  rollsToGetN :: Int -> StdGen -> Int
+  rollsToGetN l g = go l 0 0 g
+    where
+      go :: Int -> Int -> Int -> StdGen -> Int
+      go limit sum' count gen
+        | sum' >= limit = count
+        | otherwise =
+          let (die, newGen) = randomR (1, 6) gen
+          in go limit (sum' + die) (count + 1) newGen
+
+
+2.
+Change rollsToGetN to record the series of dice that are rolled, in addition to 
+the count of the total number of rolls:
+  rollsCountLogged :: Int -> StdGen -> (Int, [Die])
+  rollsCountLogged = undefined
+
+  rollsCountLogged :: Int -> StdGen -> (Int, [Die])
+  rollsCountLogged l g = go l 0 (0, []) g
+    where
+      go :: Int -> Int -> (Int, [Die]) -> StdGen -> (Int, [Die])
+      go limit sum' (count, rolls) gen
+        | sum' >= limit = (count, rolls)
+        | otherwise =
+          let (die, newGen) = randomR (1, 6) gen
+          in go limit (sum' + die) (count + 1, (intToDie die) : rolls) newGen
+
+
+Writing State
+
+  {-# LANGUAGE InstanceSigs #-}
+
+  module States.Moi where
+
+  newtype Moi s a = 
+    Moi { runMoi :: s -> (a, s) }
+
+  instance Functor (Moi s) where
+    fmap :: (a -> b) -> Moi s a -> Moi s b
+    fmap f (Moi g) = Moi $ \s -> 
+      let (a, s') = g s
+      in (f a, s')
+
+  instance Applicative (Moi s) where
+    pure :: a -> Moi s a
+    pure a = Moi $ \s -> (a, s)
+
+    (<*>) :: Moi s (a -> b) -> Moi s a -> Moi s b
+    (Moi f) <*> (Moi g) = Moi $ \s ->
+      let 
+        (a, s') = g s
+        (a2b, s'') = f s'
+      in (a2b a, s'')
+
+  instance Monad (Moi s) where
+    return = pure
+
+    (>>=) :: Moi s a -> (a -> Moi s b) -> Moi s b
+    (Moi f) >>= g = Moi $ \s ->
+      let (a, s') = f s
+      in (runMoi (g a)) s'
+
+  I'm assuming that passing the new state back as the result is correct. It does
+  seem to go against the "don't change the structure" rules of Functor,
+  Applicative, and Monad though. But otherwise, the state does not get updated from
+  call to call. But maybe it doesn't change the structure, because the type
+  is a function and the state is an argument to that function. So the argument can
+  be anything of the correct type.
+
+
