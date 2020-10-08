@@ -1,8 +1,9 @@
-State
+State - a data type that allows a value to persist a state between usages. This
+  is acheived through how Functor, Applicative, and Monad are defined for the
+  type.
 
   newtype State s a =
     State { runState :: s -> (a, s) }
-
 
 Using State to roll dice
   intToDie :: Int -> Die
@@ -165,4 +166,55 @@ Writing State
   is a function and the state is an argument to that function. So the argument can
   be anything of the correct type.
 
+
+Chapter Exercises:
+
+instead of using `State` I used `Moi` which is the equivalent data type defined
+above
+
+1.
+get :: Moi s s
+get = Moi $ \s -> (s, s)
+
+2.
+put :: s -> Moi s ()
+put s = Moi $ \_ -> ((), s)
+
+3.
+exec :: Moi s a -> s -> s
+exec (Moi f) s = snd $ f s
+
+4.
+eval :: Moi s a -> s -> a
+eval (Moi f) s = fst $ f s
+
+5.
+modify :: (s -> s) -> Moi s ()
+modify f = Moi $ \s -> ((), f s)
+
+
+The second usage example for `modify` is incorrect
+  runMoi f >> f 0 
+can never work. There are several problems.
+1. 
+`f` is defined as
+  f :: Num s => Moi s ()
+  f = modify (+1)
+which means that `f 0` is just wrong, the type of `0` is Num, but `f` is of type
+Moi. We could do 
+  runMoi f 0
+
+2.
+`runMoi f` returns a function of type `s -> ((), s)` which doesn't make any sense
+to use with `>>` since `>>` throws away it's first argument and evaluates the
+second, which is also the erroneous `f 0`
+
+Correction - Since `runMoi f >> f 0` is supposed to return `((),2)`
+I think what it was meant to be was 
+  runMoi f 0 >>= runMoi f
+which does return the desired `((), 2)`
+
+To be sure, I also tested these functions with the actual implementation of `State`
+from the standard library, and I got the same errors. So I do not think there is 
+a problem with my implementation of `Moi`
 
