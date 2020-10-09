@@ -1,0 +1,7 @@
+Parser Combinators
+
+  Combinator - an expression with no free variables.
+  Parser Combinator - a higher order function that takes parsers as input and
+  returns a new parser as output
+
+

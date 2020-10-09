@@ -195,7 +195,7 @@ modify f = Moi $ \s -> ((), f s)
 
 The second usage example for `modify` is incorrect
   runMoi f >> f 0 
-can never work. There are several problems.
+can never work.
 1. 
 `f` is defined as
   f :: Num s => Moi s ()
@@ -204,15 +204,13 @@ which means that `f 0` is just wrong, the type of `0` is Num, but `f` is of type
 Moi. We could do 
   runMoi f 0
 
-2.
-`runMoi f` returns a function of type `s -> ((), s)` which doesn't make any sense
-to use with `>>` since `>>` throws away it's first argument and evaluates the
-second, which is also the erroneous `f 0`
 
 Correction - Since `runMoi f >> f 0` is supposed to return `((),2)`
 I think what it was meant to be was 
   runMoi f 0 >>= runMoi f
-which does return the desired `((), 2)`
+or, closer to the original
+  runMoi (f >> f) 0
+which both return the desired `((), 2)`
 
 To be sure, I also tested these functions with the actual implementation of `State`
 from the standard library, and I got the same errors. So I do not think there is 
