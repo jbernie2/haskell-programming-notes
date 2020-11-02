@@ -5,3 +5,187 @@ Parser Combinators
   returns a new parser as output
 
 
+
+notice how the parse type is similar to State
+  type Parser a = String -> Maybe (a, String)
+  newtype State s a = { runState :: \s -> (a, s) }
+
+The difference is that function used by Parser may fail. This is equivalent of there
+being a parse error. But the state of the parser is maintained in the same way
+that State maintains its state.
+
+Exercises: Parsing Practice
+I found these exercises vague and confusing, with the techniques used not covered
+in the chapter.
+
+Setup
+  module ParserCombinators.LearnParsers where
+
+  import Text.Trifecta
+  import Control.Applicative ((<|>))
+
+  stop :: Parser a
+  stop = unexpected "stop"
+
+  one :: Parser Char
+  one = char '1'
+
+  one' :: Parser Char
+  one' = one >> stop
+
+  oneTwo :: Parser Char
+  oneTwo = char '1' >> char '2'
+
+  oneTwo' :: Parser Char
+  oneTwo' = oneTwo >> stop
+
+
+1. Using EOF
+
+  testEofParse :: Parser Char -> IO ()
+  testEofParse p =
+    print $ parseString (p >> eof) mempty "12"
+
+2. parsing alternatives
+
+  p123 :: String -> IO ()
+  p123 s = 
+    print $ parseString 
+      (string "123" <|> string "12" <|> string "1")
+      mempty 
+      s
+
+There is a part of the question that says we should try combining these parsers
+with the `stop` function. That's fine and all, but then these parsers will just
+fail all the time. All `stop` does is throw an exception. So based on the expected
+output given in the book, this function can not be combined with `stop` and still
+be correct.
+
+Also, there is nothing in the chapter to suggest how alternatives should be
+parsed. Was the alternative operator `<|>` even covered? I had to look up this
+one as well. I expected the solution to this problem to be closer to what had
+been covered so far in the chapter.
+
+3. writing `string`
+
+  p123' :: String -> IO ()
+  p123' s = 
+    print $ parseString 
+      (string' "123" <|> string' "12" <|> string' "1")
+      mempty 
+      s
+
+  string' :: String -> Parser String
+  string' (x : xs) = char x >> string' xs >> return (x : xs)
+  string' []       = return []
+
+the base case for `string`' took me a while to get (I had to look it up), but it
+makes sense. The `return` wraps it's argument in whatever Monad is specified by
+the function. So for empty string, we simply return a parser for empty string, 
+and since a string is a list of characters, just return an empty list.
+
+
+Exercise: Unit of success
+Parsing number followed by EOF should return the parsed number, not `()`
+
+example returning `()`
+  parseString (integer >> eof) mempty "123" -- Success ()
+
+returning parsed number
+  parseString (integer >>= \r -> eof >> return r) mempty "123" -- Success 123
+
+This works because parsers are similar to the State type. When using the sequence
+operator `>>` the parser's progress (state) is passed implicity, but the result of 
+the previous parse is ignored. To get the result of the previous parse, we can use
+bind `>>=`. So we use bind to get the parsed integer, then parse `eof` and then
+return the result as the parsed integer.
+
+Alternatively, we could also use the reverse sequence operator `<*` which works
+similarly to `>>`. The `<*` operator is the reverse of `>>`
+  >> :: m a -> m b -> m b
+  <* :: m a -> m b -> m a
+
+  parseString (integer <* eof) mempty "123" -- Success 123
+
+
+Exercise Try try
+1. write a parser that can parse fractions (1/3) and decimals (0.33)
+
+  module ParserCombinators.Fractions where
+
+  import Control.Applicative
+  import Data.Ratio ((%))
+  import Text.Trifecta
+
+  parseDecimalOrFraction :: Parser DecimalOrFraction
+  parseDecimalOrFraction =
+        (Left <$> try parseDecimal)
+    <|> (Right <$> try parseFraction)
+
+  parseFraction :: Parser Rational
+  parseFraction = do
+    numerator <- decimal
+    _ <- char '/'
+    denominator <- decimal
+    case denominator of
+      0 -> fail "Denominator cannot be zero"
+      _ -> return (numerator % denominator)
+
+  parseDecimal :: Parser Double
+  parseDecimal = double
+
+  main :: IO ()
+    let parseDecimalOrFraction' =
+          parseString parseDecimalOrFraction mempty
+
+    print $ parseDecimalOrFraction' "5/4"
+    print $ parseDecimalOrFraction' "1.4"
+
+running it:
+  Success (Right (5 % 4))
+  Success (Left 1.4)
+
+
+What's weird here is the use of `try` in other examples of using alternative `<|>`,
+`try` was not necessary, like `Left <$> integer <|> Right <$> some letter`, which
+parses out either numbers or strings. I think `try` has to be used in the case of
+parsing fractions and decimals because parsing either of them required parsing
+multiple sections. This required going forward, and then going back if parsing
+failed, which is exactly what `try` is for.
+
+
+Tokenization:
+`digit` is a parser, `integer` is a tokenizer
+`digit` looks at the next character and if it is a digit, parses it
+  parseString digit mempty "123 456" -- returns Success '1'
+
+`integer` looks at characters until it find one that is not a digit
+  parseString integer mempty "123 456" -- returns Success 123
+
+notice how `digit` returns a Char while `integer` returns an Integer
+also notice how `integer` stops at a non-digit seperator
+
+  parseString (some integer) mempty "123 456" -- returns Success [123,456]
+ 
+Chapter Exercises:
+These were all really long. #5 was so long that I just stopped after completing it.
+The answers to these are in the haskell-projects/tests repo in the /ParserCombinators
+directory
+
+1.
+see haskell-projects/tests/ParserCombinators/SemVer.hs
+
+2.
+see haskell-projects/tests/ParserCombinators/Integer.hs
+
+3.
+see haskell-projects/tests/ParserCombinators/Integer.hs
+
+4.
+see haskell-projects/tests/ParserCombinators/PhoneNumber.hs
+
+5.
+This one was ridiculous and has like 4 parts to it, the parser is definitely not perfect
+but I did get some practice writing QuickCheck tests and using QuickCheck to generate test
+data
+see haskell-projects/tests/ParserCombinators/Schedule.hs
