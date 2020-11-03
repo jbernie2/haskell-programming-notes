@@ -1,0 +1,199 @@
+Composing Types
+
+Monad Transformers -
+  a way of combining Monad types to allow for a Monad whose computations can have
+  multiple effects. eg. a Monad that is both IO and Maybe
+  Monad Transformers are types that take a Monad as a type argument. They are
+  never sum types or product types
+
+
+The Identity newtype
+  newtype Identity a = Identity { runIdentity :: a }
+
+The kind of the Identity type is `* -> *`
+The type of the id function is   `a -> a`
+
+
+The Compose newtype
+  newtype Compose f g a =
+    Compose { get Compose :: f (g a) }
+
+The kind of the Compose type is     `(* -> *) -> (* -> *) -> * -> *`
+The type of the compose function is `(b -> c) -> (a -> b) -> a -> c
+
+These types are creating a kind of type-level function which take types as
+arguments and return a new type as their result
+
+the Compose type takes three type arguments
+  the first one of kind `(* -> *)` is a type that has a type argument of its
+  own. So a type like Maybe, or [] would work, but not Either (which has two
+  type arguments and therefore has a kind of `(* -> * -> *)`
+
+  the second argument has the same kind as the first, so any type that works
+  for the first one will work for the second. 
+
+  The third argument is a concrete type (one that does not take any arguments)
+  this could be something like `Int`, but it could also be `Maybe Int` since both
+  types are concrete and therefore have a kind of `*`
+
+the Functor type class can be implemented for Identity and Compose the same way
+it is implemented for any other datatype
+
+  instance Functor Identity where
+    fmap f (Identity a) = Identity (f a)
+
+  instance (Functor f, Functor g) => Functor (Compose f g) =
+    fmap f (Compose fga) = Compose $ (fmap . fmap) f fga
+
+for Compose, since the inner most type is nested within two structures, we
+compose fmap with itself to transform it. Rememeber
+  fmap . fmap :: (Functor f, Functor g) => (a -> b) -> f (g a) -> f (g b)
+
+For `Compose f g a` if the `f` and `g` type arguments are Functors then 
+`Compose f g a` is also a Functor. The fact that the composition of two Functor
+instances results in a new Functor instance is called "Functors being closed under
+composition"
+
+
+
+Exercise: Applicative Composition
+Write an Applicative instance for the Compose type
+
+This was really hard, but the answer was very simple in the end. I am going to walk
+through my thought process.
+
+tldr: use liftA2
+
+Provided Code:
+  instance (Applicative f, Applicative g) => Applicative (Compose f g) where
+    pure :: a -> Compose f g a
+    pure = undefined
+
+    (<*>) :: Compose f g (a -> b)
+          -> Compose f g a
+          -> Compose f g b
+    (Compose f) <*> (Compose a) = undefined
+
+Attempt 1:
+My first Idea was to try with more concrete types and then look for a pattern.
+I first implemented Applicative for `Compose [] Maybe`
+
+  instance Applicative (Compose [] Maybe) where
+    pure :: a -> Compose [] Maybe a
+    pure a = Compose [Just a]
+
+    (<*>) :: Compose [] Maybe (a -> b) 
+           -> Compose [] Maybe a 
+           -> Compose [] Maybe b
+    (Compose (mf : mfs)) <*> (Compose (ma : mas)) = Compose $
+         pure (mf <*> ma)
+        <> getCompose ((Compose (pure mf)) <*> (Compose mas))
+        <> getCompose ((Compose mfs) <*> (Compose (ma : mas)))
+    (Compose [])         <*> _             = Compose $ mempty
+    _                    <*> (Compose [])  = Compose $ mempty
+
+This was pretty complicated, as I had to manually iterate over the list and make
+sure each function in the first list was applied to each value in the second list
+and then concatenate all those values together.
+
+Attempt 2:
+I noticed the implementation for `Compose [] Maybe` could be generalized to
+`Compose [] a` without much extra work, so I did
+
+  instance Applicative g => Applicative (Compose [] g) where
+    pure :: a -> Compose [] g a
+    pure a = Compose [pure a]
+
+    (<*>) :: Compose [] g (a -> b) 
+           -> Compose [] g a 
+           -> Compose [] g b
+    (Compose (mf : mfs)) <*> (Compose (ma : mas)) = Compose $
+         pure (mf <*> ma)
+        <> getCompose ((Compose (pure mf)) <*> (Compose mas))
+        <> getCompose ((Compose mfs) <*> (Compose (ma : mas)))
+    (Compose [])         <*> _             = Compose $ mempty
+    _                    <*> (Compose [])  = Compose $ mempty
+
+nothing much differnt here, just changing the `Maybe` to type variable `g`
+
+Attempt 3:
+So I then implemented an instance of Applicative for `Compose Maybe Maybe` in hopes
+that some patterns in the implementations would be illuminated.
+
+  instance Applicative (Compose Maybe Maybe) where
+    pure :: a -> Compose Maybe Maybe a
+    pure a = Compose $ Just (Just a)
+
+    (<*>) :: Compose Maybe Maybe (a -> b) 
+           -> Compose Maybe Maybe a 
+           -> Compose Maybe Maybe b
+    (Compose mmf) <*> (Compose mma) = Compose $
+      case mmf of
+        Just mf ->
+          case mf of
+            Just f ->
+              (fmap . fmap) f mma
+            Nothing ->
+              Nothing
+        Nothing ->
+          Nothing
+
+This one was definitely easier to come up with. I just had to unwrap the two layers
+around the function in the first arguemnt and then apply it.
+
+Attempt 4:
+Similar to attempt 2, I generalized by `Compose Maybe Maybe` implementation to
+`Compose Maybe a`. This took a little more work than the generalization in Attempt
+2
+
+  instance Applicative g => Applicative (Compose Maybe g) where
+    pure :: a -> Compose Maybe g a
+    pure a = Compose $ Just (pure a)
+
+    (<*>) :: Compose Maybe g (a -> b) 
+           -> Compose Maybe g a 
+           -> Compose Maybe g b
+    (Compose mmf) <*> (Compose mma) = Compose $
+      case mmf of
+        Just mf ->
+          case mma of
+            Just ma ->
+              pure $ mf <*> ma
+            Nothing ->
+              Nothing
+        Nothing ->
+          Nothing
+
+instead of unwrapping two layers of Maybe from the first argument, I unwrapped one
+layer of Maybe from each and then, since the arguments them seleves are nested
+Applicatives, used `<*>` to make the computation work
+
+So, what I found in these first 4 attempts was that the common thread was that I had
+to unwrap the outer structure of both arguments before I could really do anything
+with them. This took me down the path of using nested `fmap`, but that had a 
+problem of introducing additional structure.
+
+Attempt 5:
+How could I unwrap the outer structure of both arguments?
+  
+  liftA2 :: (a -> b -> c) -> f a -> f b -> f c
+
+this looks promising. So I tried it, and it worked!
+
+  instance (Applicative f, Applicative g) => Applicative (Compose f g) where
+    pure :: a -> Compose f g a
+    pure a = Compose . pure $ pure a
+
+    (<*>) :: Compose f g (a -> b) -> Compose f g a -> Compose f g b
+    (Compose fgab) <*> (Compose fga) = Compose $
+      liftA2 (\gab ga -> gab <*> ga) fgab fga 
+
+by using liftA2 to unwrap the outer structure of both arguments, I was able to just
+use `<*>` on the inner structures, and everything behaved as expected.
+
+But how does liftA2 work? it seems kind of magical.
+
+  liftA2 :: (a -> b -> c) -> f a -> f b -> f c
+  liftA2 fa fb = (<*>) <$> fa <*> fb
+
+-- TODO : explain how this all works out. Why does fmapping <*> do something?
