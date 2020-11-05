@@ -56,7 +56,7 @@ Maybe (Optional) instance of Foldable
     foldl f z (Yep x) = f z x
 
     foldMap _ Nada = mempty
-    foldMap f (Yep a) f a
+    foldMap f (Yep a) = f a
 
   because `Maybe` or `Optional` does not guarantee that it will contain a value 
   (Nothing, Nada), `foldMap` must be able to produce a default value in that case.

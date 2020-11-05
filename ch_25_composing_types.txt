@@ -59,8 +59,8 @@ composition"
 Exercise: Applicative Composition
 Write an Applicative instance for the Compose type
 
-This was really hard, but the answer was very simple in the end. I am going to walk
-through my thought process.
+This was really hard, but the answer was very simple in the end. I am going to 
+walk through my thought process.
 
 tldr: use liftA2
 
@@ -117,8 +117,8 @@ I noticed the implementation for `Compose [] Maybe` could be generalized to
 nothing much differnt here, just changing the `Maybe` to type variable `g`
 
 Attempt 3:
-So I then implemented an instance of Applicative for `Compose Maybe Maybe` in hopes
-that some patterns in the implementations would be illuminated.
+So I then implemented an instance of Applicative for `Compose Maybe Maybe` in 
+hopes that some patterns in the implementations would be illuminated.
 
   instance Applicative (Compose Maybe Maybe) where
     pure :: a -> Compose Maybe Maybe a
@@ -138,13 +138,13 @@ that some patterns in the implementations would be illuminated.
         Nothing ->
           Nothing
 
-This one was definitely easier to come up with. I just had to unwrap the two layers
-around the function in the first arguemnt and then apply it.
+This one was definitely easier to come up with. I just had to unwrap the two 
+layers around the function in the first arguemnt and then apply it.
 
 Attempt 4:
 Similar to attempt 2, I generalized by `Compose Maybe Maybe` implementation to
-`Compose Maybe a`. This took a little more work than the generalization in Attempt
-2
+`Compose Maybe g`. This took a little more work than the generalization in 
+Attempt 2
 
   instance Applicative g => Applicative (Compose Maybe g) where
     pure :: a -> Compose Maybe g a
@@ -168,10 +168,10 @@ instead of unwrapping two layers of Maybe from the first argument, I unwrapped o
 layer of Maybe from each and then, since the arguments them seleves are nested
 Applicatives, used `<*>` to make the computation work
 
-So, what I found in these first 4 attempts was that the common thread was that I had
-to unwrap the outer structure of both arguments before I could really do anything
-with them. This took me down the path of using nested `fmap`, but that had a 
-problem of introducing additional structure.
+So, the common thread was that I had to unwrap the outer structure of both
+arguments before I could really do anything with them. This took me down the path
+of using nested `fmap`, but that had a problem of introducing additional
+structure.
 
 Attempt 5:
 How could I unwrap the outer structure of both arguments?
@@ -188,12 +188,308 @@ this looks promising. So I tried it, and it worked!
     (Compose fgab) <*> (Compose fga) = Compose $
       liftA2 (\gab ga -> gab <*> ga) fgab fga 
 
-by using liftA2 to unwrap the outer structure of both arguments, I was able to just
-use `<*>` on the inner structures, and everything behaved as expected.
+by using liftA2 to unwrap the outer structure of both arguments, I was able to 
+just use `<*>` on the inner structures, and everything behaved as expected.
 
 But how does liftA2 work? it seems kind of magical.
 
   liftA2 :: (a -> b -> c) -> f a -> f b -> f c
   liftA2 fa fb = (<*>) <$> fa <*> fb
 
--- TODO : explain how this all works out. Why does fmapping <*> do something?
+Basically, we want to have two functions
+  one function has a signature
+    f1 :: f (a -> b) -> f a -> f b
+  and the other function has the signature
+    f2 :: (f (a -> b) -> f a -> f b) -> f (g (a -> b)) -> f (g a) -> f (g b)
+
+  you'll notice that `f1` is the signature of `<*>`
+  and you'll notice that the first argument to f2 has the same signature as `f1`
+  Ok, so we know we will be passing `<*>` as an argument to a function
+  And we know that if we want to lift a multi-argument function over several
+  arguments with structure we have to use `<$>` for the first argument, and
+  `<*>` for the rest of the arugments.
+
+  So now we can defined `f2` as 
+    f2 f1 fgab fga = f1 <$> fgab <*> fga
+  and since we know that `f1` is equivalent to `<*>`, we get
+    f2 fgab fga = (<*>) <$> fgab <*> fga
+  which allows us to lift the applicative function `<*>` over the structure of
+  fgab 
+    fgab :: f (g (a ->b))
+  and fga 
+    fga :: f (g a) 
+  which return a type of
+    fgb :: f (g b)
+  which is the type we want.
+
+  And since `liftA2` is just short hand for `foo f a1 a2 = f <$> a1 <*> a2`
+  instead of doing
+    f2 fgab fga = (<*>) <$> fgab <*> fga
+  we can do
+    f2 fgab fga = liftA2 (<*>) fgab fga
+  which results in
+    (<*>) :: Compose f g (a -> b) -> Compose f g a -> Compose f g b
+    (Compose fgab) <*> (Compose fga) = Compose $
+      liftA2 (<*>) fgab fga 
+    
+
+Why a Monad instance for Compose is impossible
+  the Monad type class
+    class Applicative m => Monad m where
+      return :: a -> m a
+      (>>=)  :: m a -> (a -> m b) -> m b
+
+      (>>)   :: m a -> m b -> m b
+      m >> n = m >>= \_ -> n
+
+  the proposed instance of Monad for Compose
+    instance (Monad f, Monad g) => Monad (Compose f g) where
+
+      return :: a -> m a
+      return = pure
+
+      (>>=) :: Compose f g a
+            -> (a -> Compose f g b)
+            -> Compose f g b
+      (>>=) = ???
+
+  so let's think about why we can't do this. The only function we have for
+  unwrapping a Monad is bind `>>=`, the problem with using bind is that it
+  introduces additional structure in the return value. So if try to use it
+  to unwrap multiple layers, the value returned from the inner most computation
+  will have all the structure, not just the structure from the inner most layer
+
+  consider this attempt
+    instance (Monad f, Monad g) => Monad (Compose f g) where
+      (>>=) :: Compose f g a
+            -> (a -> Compose f g b)
+            -> Compose f g b
+      (>>=) (Compose fga) aCfgb = Compose $
+        fga >>= 
+          (\ga -> ga >>= 
+            (\a -> aCfgb a )
+          )
+
+    we are able to apply the function successfully, but the problem is that the
+    function returns type `Compose f g b` when `>>=` expects a return of type
+    `g b`
+    you could try fixing this by wrapping the value by doing 
+      pure (aCfgb a)
+    but then you just end up with the wrong return type
+      Compose f (Compose f g) b
+    instead of 
+      Compose f g b
+
+    If you had a function to handle each layer individually, it might work, but
+    that would be a different type class.
+    You could also imagine writing specific instances of Monad for Compose, like
+    `Compose Maybe []` where the cases could be handled on an individual level,
+    but there is no generalized solution that exists.
+
+    
+  
+Exercises: Compose Instances
+1. Write a Foldable instance for Compose
+  This took me a little while, and my answer worked, but was not as succinct as
+  the answer I looked up. I'll show both
+
+  Attempt 1:
+
+    instance (Foldable f, Foldable g) => Foldable (Compose f g) where
+      foldMap :: Monoid m 
+              => (a -> m) 
+              -> Compose f g a 
+              -> m
+      foldMap f (Compose fga) = 
+        foldr (\ga acc -> (foldMap f ga) <> acc) mempty fga
+
+  Basically, my step one is to figure out how to unwrap the layers of structure
+  so I can perform the operation I know I will have to on the inner values.
+  In this case `foldr` let me unwrap the outer layer, and gave me a way to return
+  something of type `m` (the accumulator).
+
+  Attempt 2: (the answer I looked up online)
+  Thinking there was probably a better way to do this, I looked up the answer.
+  Turns out, similar to the Functor implementation for Compose, composing the 
+  `foldMap` function with itself returns a function that is exactly the same
+  signature as the function we want. This makes intuitive sense as `fmap`ing over 
+  an inner value can be acheived by composing `fmap` with itself.
+
+    instance (Foldable f, Foldable g) => Foldable (Compose f g) where
+      foldMap :: Monoid m 
+              => (a -> m) 
+              -> Compose f g a 
+              -> m
+      foldMap f (Compose fga) = (foldMap . foldMap) f fga
+
+  Let's break down what's happening here
+
+  compose is implemented as 
+    (.)       :: (y -> z) -> (x -> y) -> x -> z
+    (.) f g x = f (g x)
+
+  so composing foldMap is essentially
+    (foldMap . foldMap) x = foldMap (foldMap x)
+
+  defining our variables
+    x       :: Monoid m               => (a -> m)
+    foldMap :: (Monoid m, Foldable f) => (a -> m) -> f a -> m
+
+  applying the arguments one at a time 
+    foldMap x :: (Monoid m, Foldable f) => f a -> m
+    foldMap (foldMap x)) :: g (f a) -> m
+
+  It's easier to understand how compose `(.)` works when it's broken down into
+  it's definition. I find looking at the signature of compose confusing when 
+  trying to understand how it changes when applying arguments to it one at a time.
+  But when looking at compose as just the nesting of functions, it is easy to
+  apply one argument at a time, and to see how the signature of that function
+  changes. In the end composing foldMap with itself unwraps the layers of
+  structure around the inner value by delgating to the Foldable instances passed
+  in.
+
+
+
+2. Write a Foldable instance for Compose
+  Attempt 1:
+
+    instance (Traversable f, Traversable g) => Traversable (Compose f g) where
+      traverse :: Applicative h
+               => (a -> h b) 
+               -> Compose f g a
+               -> h (Compose f g b)
+      traverse ahb (Compose fga) =
+        fmap Compose $ sequenceA (fmap (traverse ahb) fga)
+
+  I approached this one similarly to the last. I had to figure out how to peel
+  away the structure to get to the values I needed to transform. Since `fmap`
+  was available, I decided to use that. 
+    fmap (traverse ahb) fga :: f (h (g b))
+  this got me close to where I needed to be, the inner value was correct. Then
+  I could use `seqeunceA` to get closer
+    sequenceA (fmap (traverse ahb) fga) :: h (f (g b))
+  now all the elements were in the correct order, I was just missing `Compose` so
+  I `fmap` the constructor over the result to preserve the outer `h` layer
+    fmap Compose $ sequenceA (fmap (traverse ahb) fga) :: h (Compose f g b)
+
+  basically, I just tried to get the inner structure correct, then followed the
+  type errors to make the rest work out.
+    
+  Attempt 2: (the answer I looked up online)
+  Much like the Foldable instance, there was a much cleaner solution than the one
+  I came up with. composing `traverse` with itself allowed for the inner value to
+  be transformed more easily.
+
+    instance (Traversable f, Traversable g) => Traversable (Compose f g) where
+      traverse :: Applicative h
+               => (a -> h b) 
+               -> Compose f g a
+               -> h (Compose f g b)
+      traverse ahb (Compose fga) = Compose <$> (traverse . traverse) ahb fga
+
+
+  Let's break down what's happening here
+    (.)       :: (y -> z) -> (x -> y) -> x -> z
+    (.) f g x = f (g x)
+
+  compose is implemented as 
+    (.)       :: (y -> z) -> (x -> y) -> x -> z
+    (.) f g x = f (g x)
+
+  so composing traverse is essentially
+    (traverse . traverse) x = traverse (traverse x)
+
+  defining our variables
+    x        :: Applicative h                  => (a -> h b)
+    traverse :: (Traversable f, Applicative h) => (a -> h b) -> f a -> h (f b)
+
+  applying the arguments one at a time 
+    traverse x
+      :: (Traversable f, Applicative h)
+      => f a -> h (f b)
+    traverse (traverse x)
+      :: (Traversable f, Traversable g, Applicative h)
+      => g (f a) -> h (g (f b))
+
+  This one is a little more mind-bendy than the last, but the strategy of
+  breaking down compose into it's definition still works.
+
+
+Implementing Bifunctors:
+This is not super related to the other stuff in this chapter, but it is pretty
+straight-forward
+
+  class Bifunctor p where
+
+    bimap :: (a -> b)
+          -> (c -> d)
+          -> p a c
+          -> p b d
+    bimap f g = first f . second g
+
+    first :: (a -> b) -> p a c -> p b c
+    first f = bimap f id
+
+    second :: (b -> c) -> p a b -> p a c
+    second f = bimap id f
+
+1.
+  data Deux a b = Deux a b
+    deriving Show
+
+  instance Bifunctor Deux where
+    first f (Deux a b)  = Deux (f a) b
+    second f (Deux a b)  = Deux a (f b)
+
+2.
+  data Const a b = Const a
+    deriving Show
+
+  instance Bifunctor Const where
+    first f (Const a)  = Const (f a)
+    second _ (Const a)  = Const a
+
+3.
+  data Drei a b c = Drei a b c
+    deriving Show
+
+  instance Bifunctor (Drei a) where
+    first f (Drei a b c) = Drei a (f b) c
+    second f (Drei a b c) = Drei a b (f c)
+
+4.
+  data SuperDrei a b c = SuperDrei a b
+    deriving Show
+
+  instance Bifunctor (SuperDrei a) where
+    first f (SuperDrei a b) = SuperDrei a (f b)
+    second _ (SuperDrei a b) = SuperDrei a b
+
+5.
+  data SemiDrei a b c = SemiDrei a
+    deriving Show
+
+  instance Bifunctor (SemiDrei a) where
+    first _ (SemiDrei a)  = SemiDrei a
+    second _ (SemiDrei a) = SemiDrei a
+
+6.
+  data Quadriceps a b c d = Quadzzz a b c d
+    deriving Show
+
+  instance Bifunctor (Quadriceps a b) where
+    first f (Quadzzz a b c d) = Quadzzz a b (f c) d
+    second f (Quadzzz a b c d) = Quadzzz a b c (f d)
+
+7.
+  data Either' a b
+    = Left' a
+    | Right' b
+    deriving (Show)
+
+  instance Bifunctor Either' where
+    first f (Left' a) = Left' (f a)
+    first _ (Right' b) = Right' b
+    second _ (Left' a) = Left' a
+    second f (Right' b) = Right' (f b)
+
