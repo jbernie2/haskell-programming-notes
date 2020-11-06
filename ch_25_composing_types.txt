@@ -286,7 +286,6 @@ Why a Monad instance for Compose is impossible
     `Compose Maybe []` where the cases could be handled on an individual level,
     but there is no generalized solution that exists.
 
-    
   
 Exercises: Compose Instances
 1. Write a Foldable instance for Compose
@@ -493,3 +492,41 @@ straight-forward
     second _ (Left' a) = Left' a
     second f (Right' b) = Right' (f b)
 
+
+Monad Transformers
+
+  composing two polymorphic Monads is not possible. However, it is possible to
+  compose a concrete Monad with a polymorphic one. This concept allows "stacking"
+  of Monad Transformers, where each Transformer knows how to handle it's
+  own specific instance (IO, Maybe, [], etc..) and then also knows how to delegate
+  to the polymorphic instance.
+
+IdentityT
+  newtype IdentityT f a =
+    IdentityT { runIdentityT :: f a }
+    deriving (Eq, Show)
+
+  instance Functor m => Functor (IdentityT m) where
+    fmap f (IdentityT fa) = IdentityT (fmap f fa)
+
+  instance Applicative m => Applicative (IdentityT m) where
+    pure x = IdentityT $ pure x
+    (IdentityT mf) <*> (IdentityT ma) = IdentityT $ mf <*> ma
+
+  instance Monad m => Monad (IdentityT m) where
+
+    pure :: a -> IdentityT m a
+    return = pure
+
+    (>>=) :: IdentityT m a
+          -> (a -> IdentityT m b)
+          -> IdentityT m b
+    (IdentityT ma) >>= f = IdentityT $ ma >>= runIdentityT . f
+
+  because we use a concrete type for one of the Monads (IdentityT), we can make
+  the bind `>>=` work by unwrapping that extra layer of structure returned by
+  the function passed to `>>=`. Then we can re-wrap the value returned into
+  IdentityT. The complexity in Monad transformers comes from how to unwrap the
+  extra layer of structure returned from the function passed to bind `>>=`. It's
+  trivial to do for IdentityT, but how does it work for MaybeT? (I actually don't
+  know yet)
