@@ -1,0 +1,99 @@
+Monad Transformers
+  a type that allows for the composition of Monads. Due to the fact that it is
+  impossible to compose Monads generically, see the previous chapter for why this
+  is the case, a new type is needed for each any Monad that needs to be composed.
+
+MaybeT
+  newtype MaybeT m a =
+    MaybeT { runMaybeT :: m (Maybe a) }
+
+  instance (Functor m) => Functor (MaybeT m) where
+    fmap f (MaybeT ma) = MaybeT $ (fmap . fmap) f mMm
+
+  instance (Applicative m) => Applicative (MaybeT m) where
+    fmap (MaybeT fab) (MaybeT mma) = MaybeT $ (<*>) <$> fab <*> mma
+
+notice how these instances are the same as the ones we wrote for the Compose type
+in the last chapter. This is not a coincidence. The Compose type was essentially
+the same as MaybeT, just more generic. The difference between Compose and MaybeT
+(and all other Monad Transformers) is how the Monad instance is defined.
+
+  instance (Monad m) => Monad (MaybeT m) where
+    reutrn = pure
+    (MaybeT mma) >>= f = MaybeT $ do
+      ma <- mma
+      case ma of 
+        Just a ->
+          runMaybeT $ f a
+        Nothing ->
+          return Nothing
+
+When we tried to make a generic version of Monad for Compose, we failed because
+there was no way to unwrap the values, so when `f` was applied, there was all
+this extra structure wrapped around the value. But now, we know that one of the
+Monads is a Maybe, so we can unwrap that layer using a case statement. This
+allows us to apply the function passed to bind, and still return a value of the
+correct type, since now we do not have to use two binds to reach the inner value.
+
+
+Exercises: EitherT
+
+  newtype EitherT e m a =
+    EitherT { runEitherT :: m (Either e a) }
+
+1. Functor instance
+  instance Functor m => Functor (EitherT e m) where
+    fmap f (EitherT me) = EitherT $ (fmap . fmap) f me
+
+2. Applicative instance
+
+  instance Applicative m => Applicative (EitherT e m) where
+    pure a = EitherT . pure $ pure a
+    (EitherT fab) <*> (EitherT mea) = EitherT $ (<*>) <$> fab <*> mea
+
+The Functor and Applicative instances are identical to both Compose and MaybeT,
+apart from the type constructors
+
+3. Monad instance
+  instance Monad m => Monad (EitherT e m) where
+    return = pure
+    (EitherT mea) >>= f = EitherT $
+      mea >>= (\ea ->
+        case ea of
+          Left e ->
+            return $ Left e
+          Right a ->
+            runEitherT $ f a
+      )
+
+  similar to the MaybeT instance we can unwrap the inner layer of structure with
+  a case statement.
+
+4. swapEither / swapEitherT
+  swapEither :: Either e a -> Either a e
+  swapEither eEA =
+    case eEA of
+      Left e ->
+        Right e
+      Right a ->
+        Left a
+
+  swapEitherT :: (Functor m) => EitherT e m a -> EitherT a m e
+  swapEitherT (EitherT ema) = EitherT $ fmap swapEither ema
+
+5. EitherT catamorphism
+  eitherT :: Monad m
+          => (a -> m c)
+          -> (b -> m c)
+          -> EitherT a m b
+          -> m c
+  eitherT amc bmc (EitherT me) =
+    me >>= (\e ->
+      case e of
+        Left a ->
+          amc a
+        Right b ->
+          bmc b
+    )
+
+  
