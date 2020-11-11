@@ -96,4 +96,241 @@ apart from the type constructors
           bmc b
     )
 
-  
+
+ReaderT
+
+  newtype ReaderT r m a =
+    ReaderT { runReaderT :: r -> m a }
+
+newtype ReaderT r m a =
+  ReaderT { runReaderT :: r -> m a }
+
+instance Functor m => Functor (ReaderT r m) where
+  fmap f (ReaderT rma) = ReaderT $ (fmap . fmap) f rma
+
+instance Applicative m => Applicative (ReaderT r m) where
+  pure a = ReaderT . pure $ pure a
+  (ReaderT rmab) <*> (ReaderT rma) = ReaderT $
+    (<*>) <$> rmab <*> rma
+ 
+instance Monad m => Monad (ReaderT r m) where
+  return = pure
+  (ReaderT rma) >>= f = ReaderT $
+    (\r -> rma r >>= 
+      (\a -> (runReaderT $ f a) r)
+    )
+
+even though you might think the Functor and Applicative instances would be
+different for ReaderT than they have been for the other Monad Transformers,
+they aren't. This is because `->` the function operator, has a valid Functor
+and Applicative instance, so we can just reuse the same code we used before, but
+with a different type constructor.
+
+
+Exercises: StateT
+
+  newtype StateT s m a =
+    StateT { runStateT :: s -> m (a, s) }
+
+1. Functor instance
+  import Data.Bifunctor (first)
+  instance (Functor m) => Functor (StateT s m) where
+    fmap :: (a -> b)
+         -> StateT s m a
+         -> StateT s m b
+    fmap f (StateT sma) = StateT $ (fmap . fmap . first) f sma
+
+2. Applicative instance
+
+  instance (Monad m) => Applicative (StateT s m) where
+    pure :: a -> StateT s m a
+    pure a = StateT $ (\s -> pure (a, s))
+
+    (<*>) :: (StateT s m (a -> b))
+          -> (StateT s m a)
+          -> (StateT s m b)
+    (StateT smab) <*> (StateT sma) = StateT $ 
+      (\s ->
+        (smab s) >>= 
+          (\(ab, s') -> 
+            (sma s') >>= 
+              (\(a, s'') -> pure (ab a, s''))
+          )
+      )
+
+it's important to note how `s` is used here. There are 3 different versions of
+`s`, all representing the potentially changing state that is getting passed
+through the functions. This is also why the type variable `m` is a Monad and 
+not an Applicative, so the state can be updated after each function call.
+
+3. Monad instance
+
+  instance (Monad m) => Monad (StateT s m) where
+    return :: a -> StateT s m a
+    return = pure
+
+    (>>=) :: StateT s m a
+          -> (a -> StateT s m b)
+          -> StateT s m b
+    (StateT sma) >>= f = StateT $
+      (\s ->
+        (sma s) >>= (\(a, s') ->
+          (runStateT $ f a) s'
+        )
+      )
+
+  -- OR 
+
+    (>>=) :: StateT s m a
+          -> (a -> StateT s m b)
+          -> StateT s m b
+    (StateT sma) >>= f = StateT $ \s -> do
+      (a, s') <- sma s
+      (runStateT $ f a) s'
+
+I wanted to show the implementation using both the `do` block and the explicitly
+nested functions because it is easy to forget that one is just syntactic sugar
+for the other. the `<-` operator is really just `>>=` but easier to read when
+there are multiple binds to deal with.
+
+Monad Transformers not to use
+  - WriterT, memory inefficient, can be implemented as a variant of StateT
+  - ListT, not very fast, there are better implementations, like `pipes` and 
+    `conduit`
+
+Exercise
+
+preamble:
+  embedded :: MaybeT (ExceptT String (ReaderT () IO)) Int
+  embedded = return 1
+
+  maybeUnwrap :: ExceptT String (ReaderT () IO) (Maybe Int)
+  maybeUnwrap = runMaybeT embedded
+
+  eitherUnwrap :: ReaderT () IO (Either String (Maybe Int))
+  eitherUnwrap = runExceptT maybeUnwrap
+
+  readerUnwrap :: () -> IO (Either String (Maybe Int))
+  readerUnwrap = runReaderT eitherUnwrap
+
+1.
+  embedded' :: MaybeT (ExceptT String (ReaderT () IO)) Int
+  embedded' = MaybeT . ExceptT . ReaderT $ const (pure $ Right (Just 1))
+
+
+Lift
+
+  Much like Applicative's `pure` and Monad's `return` Monad Transformers have
+  `lift` as a way of embedding a value into the strucutre of a Monad
+  Transformer. `lift` is defined in the MonadTrans instance of a given 
+  Monad Transformer. 
+
+    lift :: (Monad m, MonadTrans t)
+         => m a
+         -> t m a
+
+  To see how it is similar to `pure` and `return` let's look
+  at some implementations.
+
+    instance MonadTrans IdentityT where
+      lift ma = IdentityT ma
+
+    instance MonadTrans MaybeT where
+      lift ma = MaybeT $ liftM Just ma
+
+  You may be confused by the use of `liftM`, what is that? 
+    liftM :: Monad m => (a -> b) -> m a -> m b
+
+  but wait, isn't that just `fmap`? And since all Monads are Applicatives, and all
+  Applicative are Functors, what's the point of having `liftM` at all? Can't we
+  just use `fmap` instead?
+  The answer is, mathmatically yes, actually no. Since Monad does not require it's
+  instances to be Funtors, they could theoretically not have `fmap` defined. So
+  really, `liftM` is a design bug, and can be thought of as `fmap`.
+
+
+Exercise lift types
+break down the types for all the parts of `lift` for ReaderT
+
+  lift :: (Monad m, MonadTrans t)
+       => m a
+       -> t m a
+
+  instance MonadTrans (ReaderT r) where
+    lift :: (Monad m) => m a -> (ReaderT r (ma))
+    lift = ReaderT . const
+
+  const :: a -> b -> a
+  ReaderT . const :: ReaderT r a
+
+
+Exercises: lift more
+
+1. MonadTrans instance for EitherT
+
+  instance MonadTrans (EitherT e) where
+    lift = EitherT . fmap Right
+
+2. MonadTrans instance for StateT
+
+  instance MonadTrans (StateT s) where
+    lift :: (Monad m) => m a -> StateT s m a
+    lift ma = StateT $ \s -> fmap (flip (,) $ s) ma
+
+  OR
+
+  instance MonadTrans (StateT s) where
+    lift :: (Monad m) => m a -> StateT s m a
+    lift m = StateT $ \s -> do
+      a <- m 
+      return (a, s)
+
+
+MonadIO
+  while `lift` works one layer at a time, applying structure for each layer of
+  the Monad Transformer stack, `liftIO`, defined in the MonadIO type class, lifts
+  over all the structure in the Monad Tranformer stack.
+
+  class (Monad m) => MonadIO m where
+    liftIO :: IO a -> m a
+
+  IdentityT MonadIO instance
+    instance (MonadIO m) => MonadIO (IdentityT m) where
+      liftIO = IdentityT . liftIO
+
+  EitherT MonadIO instance
+    instance (MonadIO m) => MonadIO (EitherT e m) where
+      liftIO = lift . liftIO
+
+  so what I don't understand is how we can use `lift` as part of the definition
+  of `liftIO`. MonadTrans is not defined as a prerequisite for MonadIO, so how
+  do we know it is defined? And how do we know it is defined correctly? It seems
+  like the class definition SHOULD BE
+    class (MonadTrans m) => MonadIO m where
+      liftIO :: IO a -> m 
+  But its not. There is just a Monad constraint on `m`
+    
+Exercises: Some instances
+1. MaybeT
+  instance (MonadIO m) => MonadIO (MaybeT m) where
+    liftIO :: IO a -> MaybeT m a
+    liftIO = lift . liftIO
+
+2. ReaderT
+  instance (MonadIO m) => MonadIO (ReaderT r m) where
+    liftIO :: IO a -> ReaderT r m a
+    liftIO = lift . liftIO
+
+3. StateT
+  instance (MonadIO m) => MonadIO (StateT s m) where
+    liftIO :: IO a -> StateT s m a
+    liftIO = lift . liftIO
+
+soooo, the instances are all the same. so what does that mean? There is clearly
+something recursive happening with `liftIO` calling itself. Of course, it's not
+really calling itself, it's calling the implementation of `liftIO` for another
+type. I think this is why `liftIO` only has to ever be called once. Since we
+use types to recursively construct the required structure around the value. So
+the recurive `liftIO` builds the lower level structure, and then `lift` (which
+remember is basically `pure`/`return` but for MonadTransformers) adds the
+additional structure required by the current instance.
