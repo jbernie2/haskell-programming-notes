@@ -334,3 +334,111 @@ use types to recursively construct the required structure around the value. So
 the recurive `liftIO` builds the lower level structure, and then `lift` (which
 remember is basically `pure`/`return` but for MonadTransformers) adds the
 additional structure required by the current instance.
+
+
+Hypothetical Exercise:
+
+Are `ReaderT r Maybe` and `MaybeT (Reader r)` the same?
+
+tl;dr -
+  I think so. Creating and modifying them are very similar. And when you
+  actually write out their types, they are basically the same
+
+let's look at the set up
+  maybeTReader :: a -> MaybeT (Reader String) a
+  maybeTReader a = MaybeT $ return (Just a)
+
+  readerTMaybe :: a -> ReaderT String Maybe a
+  readerTMaybe a = ReaderT $ return (Just a)
+
+this doesn't really tell us much. So let's look at some functions that check
+if the inner value is 1, and if it is, make that value True, otherwise False
+
+  isOne :: MaybeT (Reader String) Int -> MaybeT (Reader String) Bool
+  isOne = fmap (==1)
+   
+  isOne' :: ReaderT String Maybe Int -> ReaderT String Maybe Bool
+  isOne' = fmap (==1)
+
+so far so good, the implementation is exactly the same. The underlying code may
+not be, but the result is equal.
+
+now let's get that value so we can print it out
+
+  getVal :: MaybeT (Reader String) Bool -> Maybe Bool
+  getVal (MaybeT rma) = runReader rma ""
+
+  getVal' :: ReaderT String Maybe Bool -> Maybe Bool
+  getVal' (ReaderT rma) = rma ""
+
+these are not quite the same, as they have to deal with different structures, but
+are still not very different.
+
+  main :: IO ()
+  main = do
+    putStrLn . show . getVal . isOne $ maybeTReader 1
+    putStrLn . show . getVal . isOne $ maybeTReader 0
+
+    putStrLn . show . getVal' . isOne' $ readerTMaybe 1
+    putStrLn . show . getVal' . isOne' $ readerTMaybe 0
+
+these two types function the same under these circumstances, so that gives some
+evidence that they are equivalent.
+
+Let's look at how the types compare when we write them out
+
+  newtype ReaderT r m a = ReaderT { runReader :: (\r -> m a) }
+  newtype MaybeT m a = MaybeT { runMaybeT :: m (Maybe a)
+
+  ReaderT r Maybe a = ReaderT { runReader :: (\r -> Maybe a) }
+  MaybeT (Reader r) a = MaybeT { runMaybeT :: (\r -> Maybe a)}
+  -- not real type signatures, but definitely demonstrate my point
+
+Now, this is more convincing that these types are equivalent. We can see that
+for both we have some Monad Transformer wrapping a function that takes one 
+argument and returns a Maybe. Given that, I would say these are equivalent.
+
+
+Chapter Exercises:
+
+Write the code
+
+  newtype ReaderT r m a =
+    ReaderT { runReaderT :: r -> m a }
+
+  type Reader r a = ReaderT r Identity a
+
+  newtype StateT s m a =
+    StateT { runStateT :: s -> m (a, s) }
+
+1. Reader that increments
+  rDec :: Num a => Reader a a
+  rDec = ReaderT $ (\r -> Identity $ r + 1)
+
+2. Reader that increments (point free)
+  rDec :: Num a => Reader a a
+  rDec = ReaderT $ Identity . ((+) (-1))
+
+3. Reader that shows
+  rShow :: Show a => ReaderT a Identity String
+  rShow = ReaderT $ (\r -> Identity $ show r)
+
+4. Reader that shows (point free)
+  rShow :: Show a => ReaderT a Identity String
+  rShow = ReaderT $ Identity . show
+
+5. prints and increments
+  rPrintAndInc :: (Num a, Show a) => ReaderT a IO a
+  rPrintAndInc = ReaderT $ \r -> do
+    putStrLn $ "Hi: " <> show r
+    return (r + 1)
+
+6. prints input, returns stringify input and incremented state
+
+  sPrintIncAccum :: (Num a, Show a) => StateT a IO String
+  sPrintIncAccum = StateT $ \s -> do
+    putStrLn $ "Hi: " <> show s
+    return (show s, s + 1)
+
+Fix the code
+
