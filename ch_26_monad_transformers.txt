@@ -441,4 +441,10 @@ Write the code
     return (show s, s + 1)
 
 Fix the code
+  see code in haskell-projects/tests/MonadTransformers/FixTheCode.hs
 
+Hit Counter
+  see code in haskell-projects/tests/hitCounter/src/Main.hs
+
+Morra
+  see code in haskell-projects/tests/Morra/src/Main.hs
