@@ -1,0 +1,160 @@
+Non-strictness
+  Haskell only computes values when they are needed. If a value is never needed, it
+  is never computed. An expression that has been interpreted, but not executed, is
+  call a thunk.
+
+bottom - an error causing computation, such as trying to compute `undefined`
+
+Given that haskell is a non-strict language, expressions can have a bottom, or
+infinite computation in them, but still be evaluated.
+  eg.
+    fst (1, undefined)
+  returns `1`, ignores `undefined` since evaluating the second part of the tuple
+  is not required to evaluate the first part.
+
+    take 5 $ repeat 3
+  returns `[3,3,3,3,3]`. Although `repeat` creates an infinite list, it is only
+  evaluated up to the point that is required to return the value requested, 
+  which in this case is the first five elements.
+
+non-strict languages evaluate "outside in" whereas strict languages evaluate
+"inside out", so for haskell, the only computations that are evaluated are the ones
+that are required by the top level computation.
+  eg.
+    foldr const 'z' ['a', undefined]
+
+  with the following foldr definition
+    foldr :: (b -> a -> b) -> b -> [a] -> b
+    foldr f b as = go as
+     where
+      go [] = b
+      go (a':as') = f a' (go as')
+
+  this will evaluate in haskell no problem. since const only cares about the first 
+  argument passed to it. which basically gives us
+
+    foldrWithConst :: a -> [a] -> a
+    foldrWithConst b as = go as
+     where
+      go [] = b
+      go (a':as') = const a' (go as')
+
+  Since `const a' (go as')` is computed before `(go as')` and since `const` throws
+  away it's second argument, `(go as')` is never computed, as it is not required
+  for `const` to return a value. So since the only value that needs to be defined
+  is the first value in the list being folded over, everything else could be
+  `undefined` and it would still compute.
+
+    foldrWithConst undefined ['a', undefined] -- still returns 'a'
+
+  This differs from strict languages because other languages always compute the
+  arguments to a function before computing the function itself. In that case, those
+  languages would hit the `undefined` and throw an error, whereas a non-strict
+  language would just never look at the undefined values.
+
+
+Making Haskell Strict(er)
+
+  seq :: a -> b -> b
+
+`seq` is a function that forces the evaluation of it's first argument before
+eturning the second. so something like `seq undefined 2` wouldthrow an error
+
+
+Analyzing code evaluation
+  Haskell code is transformed into a lower level language by GHC during
+  compliation. The GHC Core language shows the execution order of functions
+  If there are parts of the function that is extraneous, those parts are dropped
+  from GHC Core.
+
+  to show GHC Core evaluation in GHCi
+    :set -ddump-simpl
+    :set -dsuppress-all
+    :l <haskell file name>
+    
+Exercises: Evaluate
+1.
+  const 1 undefined
+  (\a -> (\_ -> a) 1 undefined
+  (\1 -> (\_ -> 1)
+  1
+
+2.
+  const undefined 1
+  (\a -> (\_ -> a) 1 undefined
+  (\undefined -> (\_ -> undefined)
+  undefined error
+  -- only evaluates undefined and throws error after second argument is supplied
+
+3.
+  flip const undefined 1
+  (\a -> \b -> const b a)
+  (\a -> \b -> (\c -> (\_ -> c)) b a) 
+  (\undefined -> \1 -> (\1 -> (\_ -> 1)) 1 undefined)
+  -- returns 1
+
+4.
+  flip const 1 undefined
+  (\a -> \b -> const b a)
+  (\a -> \b -> (\c -> (\_ -> c)) b a) 
+  (\1 -> \undefined -> (\undefined -> (\_ -> undefined)) undefined 1) 
+  -- throws undefined error
+
+5.
+  const undefined undefined
+  (\a -> (\_ -> a)) undefined undefined
+  (\undefined -> (\_ -> undefined))
+  -- throws undefined error
+
+6.
+  foldr const 'z' ['a'..'e']
+  (\f ->
+    (\acc -> 
+      (\ls ->
+        go ls
+       where
+        go [] = acc
+        go (x:xs) = f x (go xs)
+      )
+    )
+  ) const 'z' ['a'..'e']
+
+  (\const ->
+    (\'z'-> 
+      (\['a'..'e'] ->
+        go ['a'..'e']
+       where
+        go [] = acc
+        go ('a':_) = const 'a' (go _)
+      )
+    )
+  ) const 'z' ['a'..'e']
+ 
+  returns 'a'
+
+7. 
+  foldr (flip const) 'z' ['a'..'e']
+  (\f ->
+    (\acc -> 
+      (\ls ->
+        go ls
+       where
+        go [] = acc
+        go (x:xs) = f x (go xs)
+      )
+    )
+  ) (flip const) 'z' ['a'..'e']
+  
+  
+  (\const ->
+    (\'z'-> 
+      (\['a'..'e'] ->
+        go ['a'..'e']
+       where
+        go [] = acc
+        go (_:xs) = (flip const) _ (go xs)
+      )
+    )
+  ) const 'z' ['a'..'e']
+
+  -- just keeps looping until xs is [], and then returns the accumulator 'z'
