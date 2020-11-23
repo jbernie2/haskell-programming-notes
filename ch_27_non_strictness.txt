@@ -158,3 +158,31 @@ Exercises: Evaluate
   ) const 'z' ['a'..'e']
 
   -- just keeps looping until xs is [], and then returns the accumulator 'z'
+
+
+
+Call by value, name, or need
+
+call by value - 
+  This is strict evaluation where the arguments to a function have to be evaluated
+  before the function can be set equal to some variable.
+    eg. in a strict language
+      x = foo(a,b)
+    before `x` is set to `foo(a,b)`, `a`, `b`, and `foo(a,b)` have to be fully 
+    evaluated.
+
+call by name -
+  This is a non-strict evaluation strategy. Variables can be set to expressions
+  that have not been evaulated yet.
+    eg. in a non-strict language
+      x = foo(a,b)
+    `x` can be set to `foo(a,b)` before `foo`, `a`, or `b` are evaluated. `x` is
+    simply set to the value "a function foo, that takes two arguments, a and b"
+    In addition, the values `a` and `b` may also be unevaluated functions. And
+    `foo(a,b)` maybe never be evaluated if x is never used in a way that requires
+    it to be a value.
+
+call by need -
+  This is another non-strict evaluation strategy. This is the same as call by name,
+  expect results are memoized and can be shared if the same function is called more
+  than once with the same arguments.
