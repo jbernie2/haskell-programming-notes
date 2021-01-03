@@ -1,25 +1,26 @@
 Non-strictness
-  Haskell only computes values when they are needed. If a value is never needed, it
-  is never computed. An expression that has been interpreted, but not executed, is
-  call a thunk.
+  Haskell only computes values when they are needed. If a value is never
+  needed, it is never computed. An expression that has been interpreted,
+  but not executed, is call a thunk.
 
-bottom - an error causing computation, such as trying to compute `undefined`
+bottom - an error causing computation, such as trying to compute 
+        `undefined`
 
-Given that haskell is a non-strict language, expressions can have a bottom, or
-infinite computation in them, but still be evaluated.
+Given that haskell is a non-strict language, expressions can have a
+bottom, or infinite computation in them, but still be evaluated.
   eg.
     fst (1, undefined)
-  returns `1`, ignores `undefined` since evaluating the second part of the tuple
-  is not required to evaluate the first part.
+  returns `1`, ignores `undefined` since evaluating the second part
+  of the tuple is not required to evaluate the first part.
 
     take 5 $ repeat 3
-  returns `[3,3,3,3,3]`. Although `repeat` creates an infinite list, it is only
-  evaluated up to the point that is required to return the value requested, 
-  which in this case is the first five elements.
+  returns `[3,3,3,3,3]`. Although `repeat` creates an infinite list,
+  it is only evaluated up to the point that is required to return the
+  value requested, which in this case is the first five elements.
 
-non-strict languages evaluate "outside in" whereas strict languages evaluate
-"inside out", so for haskell, the only computations that are evaluated are the ones
-that are required by the top level computation.
+non-strict languages evaluate "outside in" whereas strict languages
+evaluate "inside out", so for haskell, the only computations that are
+evaluated are the ones that are required by the top level computation.
   eg.
     foldr const 'z' ['a', undefined]
 
@@ -30,8 +31,8 @@ that are required by the top level computation.
       go [] = b
       go (a':as') = f a' (go as')
 
-  this will evaluate in haskell no problem. since const only cares about the first 
-  argument passed to it. which basically gives us
+  this will evaluate in haskell no problem. since const only cares about
+  the first argument passed to it. which basically gives us
 
     foldrWithConst :: a -> [a] -> a
     foldrWithConst b as = go as
@@ -39,33 +40,36 @@ that are required by the top level computation.
       go [] = b
       go (a':as') = const a' (go as')
 
-  Since `const a' (go as')` is computed before `(go as')` and since `const` throws
-  away it's second argument, `(go as')` is never computed, as it is not required
-  for `const` to return a value. So since the only value that needs to be defined
-  is the first value in the list being folded over, everything else could be
-  `undefined` and it would still compute.
+  Since `const a' (go as')` is computed before `(go as')` and since
+  `const` throws away it's second argument, `(go as')` is never computed,
+  as it is not required for `const` to return a value. So since the only
+  value that needs to be defined is the first value in the list being
+  folded over, everything else could be `undefined` and it would still
+  compute.
 
     foldrWithConst undefined ['a', undefined] -- still returns 'a'
 
-  This differs from strict languages because other languages always compute the
-  arguments to a function before computing the function itself. In that case, those
-  languages would hit the `undefined` and throw an error, whereas a non-strict
-  language would just never look at the undefined values.
+  This differs from strict languages because other languages always
+  compute the arguments to a function before computing the function
+  itself. In that case, those languages would hit the `undefined` and
+  throw an error, whereas a non-strict language would just never look at
+  the undefined values.
 
 
 Making Haskell Strict(er)
 
   seq :: a -> b -> b
 
-`seq` is a function that forces the evaluation of it's first argument before
-eturning the second. so something like `seq undefined 2` wouldthrow an error
+`seq` is a function that forces the evaluation of it's first argument
+before returning the second. so something like `seq undefined 2`
+would throw an error
 
 
 Analyzing code evaluation
   Haskell code is transformed into a lower level language by GHC during
-  compliation. The GHC Core language shows the execution order of functions
-  If there are parts of the function that is extraneous, those parts are dropped
-  from GHC Core.
+  compliation. The GHC Core language shows the execution order of
+  functions. If there are parts of the function that are extraneous, those
+  parts are dropped from GHC Core.
 
   to show GHC Core evaluation in GHCi
     :set -ddump-simpl
@@ -75,16 +79,17 @@ Analyzing code evaluation
 Exercises: Evaluate
 1.
   const 1 undefined
-  (\a -> (\_ -> a) 1 undefined
+  (\a -> (\_ -> a)) 1 undefined
   (\1 -> (\_ -> 1)
   1
 
 2.
   const undefined 1
-  (\a -> (\_ -> a) 1 undefined
+  (\a -> (\_ -> a)) undefined 1
   (\undefined -> (\_ -> undefined)
   undefined error
-  -- only evaluates undefined and throws error after second argument is supplied
+  only evaluates undefined and throws error after second argument is
+  supplied
 
 3.
   flip const undefined 1
@@ -157,32 +162,308 @@ Exercises: Evaluate
     )
   ) const 'z' ['a'..'e']
 
-  -- just keeps looping until xs is [], and then returns the accumulator 'z'
+  just keeps looping until xs is [], and then returns the accumulator
+  'z'
 
 
 
 Call by value, name, or need
 
 call by value - 
-  This is strict evaluation where the arguments to a function have to be evaluated
-  before the function can be set equal to some variable.
+  This is strict evaluation where the arguments to a function have to be
+  evaluated before the function can be set equal to some variable.
     eg. in a strict language
       x = foo(a,b)
-    before `x` is set to `foo(a,b)`, `a`, `b`, and `foo(a,b)` have to be fully 
-    evaluated.
+    before `x` is set to `foo(a,b)`, `a`, `b`, and `foo(a,b)` have to be
+    fully  evaluated.
 
 call by name -
-  This is a non-strict evaluation strategy. Variables can be set to expressions
-  that have not been evaulated yet.
+  This is a non-strict evaluation strategy. Variables can be set to
+  expressions that have not been evaulated yet.
     eg. in a non-strict language
       x = foo(a,b)
-    `x` can be set to `foo(a,b)` before `foo`, `a`, or `b` are evaluated. `x` is
-    simply set to the value "a function foo, that takes two arguments, a and b"
-    In addition, the values `a` and `b` may also be unevaluated functions. And
-    `foo(a,b)` maybe never be evaluated if x is never used in a way that requires
-    it to be a value.
+    `x` can be set to `foo(a,b)` before `foo`, `a`, or `b` are evaluated.
+    `x` is simply set to the value "a function foo, that takes two
+    arguments, a and b" In addition, the values `a` and `b` may also be
+    unevaluated functions. And `foo(a,b)` may never be evaluated if x is
+    never used in a way that requires it to be a value.
 
 call by need -
-  This is another non-strict evaluation strategy. This is the same as call by name,
-  expect results are memoized and can be shared if the same function is called more
-  than once with the same arguments.
+  This is another non-strict evaluation strategy. This is the same as
+  call by name, except results are memoized and can be shared if the same
+  function is called more than once with the same arguments.
+
+
+Thunk
+  a thunk is a reference to unevaluated computations. Thunks can be
+  examined in ghci using `:sprint`, the thunk, or unevaluated
+  computation, will be shown shown as `_`
+
+    x = [1, id 2] :: [Integer]
+    :sprint x
+    x = [1, _]
+
+  haskell will evaluate constants, but will not evaluate functions unless they are
+  required by some other computation
+
+Sharing
+  the "call by name" semantics of Haskell is what allows for data sharing. If a
+  variable representing a function is used more than once, than that function only
+  has to be evaluated one time in order for it's result to be used more than once.
+  This is possible because Haskell is aware of when a program is performing IO, if
+  no IO is performed, all computations are purely functional, and sharing is easy.
+
+  naming functions allows sharing
+    > a :: Int 
+    > a = trace "a" (2 + 2)
+    > b = (a + a)
+    > b
+    a
+    8
+    > b
+    8
+  
+  because we named `a`, calling `a` twice only evaluates `a` once, since the second
+  call to `a` can use the result of the first call.
+  similarly, because we named `b` as the result of an expression, calling `b`
+  again does not re-evaluate `a`, it just reports the previous result of calling
+  `b`
+
+  inlining functions prevents sharing
+
+    > trace "a" (2 + 2)
+    a
+    4
+    > trace "a" (2 + 2)
+    a
+    4
+
+  There is no name set to the result of the expression, so there is no way to 
+  share the computation.
+
+  Type class contraints also prevent sharing, since a function needs a
+  concrete type to be shared. This makes sense since a function with type
+    foo :: Num a => a -> a -> a
+  would have a different result if passed a floating point number or an
+  integer.
+
+  In Core (The internal GHC language), type classes are represented as
+  functions, so a type class is another variable that needs to be passed
+  before the function can be evaluated. Only values of a concrete
+  constant type can be shared.
+
+  Point free functions can be shared, functions with explicit arguments
+  can not.
+
+Lazy Pattern Matching
+  Allows for types to be unpacked but not evaluated unless they are
+  actually used. Putting a `~` in front of a pattern match makes it
+  lazy.
+
+    strictPattern :: (a, b) -> String
+    strictPattern (a,b) = const "Cousin It" a
+
+    lazyPattern :: (a, b) -> String
+    lazyPattern ~(a,b) = const "Cousin It" a
+
+    > strictPattern undefined -- throws an error
+    > lazyPattern undefined -- does not throw an error
+
+  However, lazy pattern matching does act as a catch all, therfore
+    f :: Bool -> Int
+    f ~True = 1
+    f False = 2
+
+  will always return 1, since the pattern match is never actually
+  evaluated. So what's the point of using lazy matching over a `_` 
+  catch all match? With the lazy matching, the results of the match
+  can still be passed to other functions, with `_`, they can not.
+
+    
+Bang Patterns (forcing evaluation)
+  Forces the evaluation of data
+
+    neverEval :: Bool -> Int
+    neverEval a = 1
+
+    alwaysEval a :: Bool -> Int
+    alwaysEval !a = 1
+
+  the `!` in front of an argument forces the evaluation of that argument
+  regardless of whether it is used.
+
+  Evaluation can also be forced in data definitions
+
+    data Foo = Foo Int !Int
+
+  the second `Int` argument to type `Foo` will always be evaluated
+  strictly. In practice, I have used this when reading config files.
+
+    first (Foo x _) = x
+    second (Foo _ y) = y
+ 
+    > second (Foo undefined 1)
+    1
+  undefined does not get used, so it's not evaluated
+
+    > first (Foo 1 undefined)
+    error
+  although undefined is not used, we have made the second argument to Foo
+  always get evaluated by using `!`, so undefined gets evaluated and the
+  function fails.
+
+
+Chapter Exercises
+
+1. StrictList
+  using a `repeat` esque function on a strict list causes an infinite
+  loop, since `repeat` is normally defined using an infinite list.
+  whereas using a partially strict list
+    data List
+      = Nil
+      | Cons !a (List a)
+  does not enter an infinite loop since only the first element of
+  list is strictly evaluated.
+
+What will sprint output
+
+1. let x = 1
+  > :sprint x
+  x = 1
+  wrong, prints `x = _` because `1` is of type `Num a` and since typeclasses
+  are unapplied functions in GHC core, `1` is not a constant
+
+  whereas
+    let x = 1 :: Integer
+    > :sprint x
+    1
+
+  because x is now a constant since we assigned it a concrete type.
+
+2. let x = ['1']
+  > :sprint x
+  x = [_]
+  wrong, answer is `x = "1"`
+  this prints "1" because `['1']` is a constant, and constants are always
+  evaluated strictly.
+
+3. let x = [1]
+  > :sprint x
+  x = [_]
+  wrong, answer is `x = _` because once again `1` is not a constant, so
+  nothing is evaluated, so the type of `[1]` is `Num a => [a]`
+
+4. let x = 1 :: Int
+  > :sprint x
+  x = 1
+  correct!
+
+5. let f = \x -> x
+  let x = f 1
+  > :sprint f
+  f = _
+  > :sprint x
+  _
+  correct! only constants (and data constructors) are evaulated strictly,
+  all functions are evaluated lazily, so neither `f` nor `x` has been
+  evaluated.
+
+6. let f :: Int -> Int; f = \x -> x
+  let x = f 1
+  > :sprint f
+  _
+  > :sprint x
+  _
+  correct! Making the type signature concrete does not affect how
+  functions are evaluated, only constants (like `Int` vs `Num a`)
+
+Will Printing the expression result in bottom?
+
+1.
+  > snd (undefined, 1)
+  1
+  Correct! This does not result in a bottom because the first element
+  of the tuple does not have to be evaluated for the second element to
+  be returned. Consider the definition of `snd`
+
+  snd :: (a,b) -> b
+  snd (_, b) = b
+
+2. 
+  > let x = undefined
+  > let y = x `seq` 1
+  > snd (x, y)
+  undefined error
+  Correct! `y` references `x`, and `x` is referenced as part of a call to
+  `seq`. `seq` strictly evaluates it's first argument before returning
+  it's second, so `x` (which is undefined) will be evaluated and throw
+  an error.
+
+3.
+  > length $ [1..5] ++ undefined
+  6
+  Wrong! This fails with an undefined error.
+  The elements of a list does not have to be evaluated to know
+  it's length, but looking at the signature of `++` tells us why this
+  failed.
+    (++) :: [a] -> [a] -> [a]
+  the second argument needs to be a list, and since we pass `undefined`
+  the function fails when it attempts to concatenate the list to an
+  undefined value
+
+4.
+  > length $ [1..5] ++ [undefined]
+  6
+  Correct! The elements of a list do not have to be evaluated to know
+  it's length. `length` only evaluates the "spine" of the list and not
+  the elements. Contrast this with the previous example, where the 
+  function fails.
+
+5.
+  > const 1 undefined
+  1
+  Correct! `const` ignores the second argument, so undefined never gets 
+  evaluated and the first argument is returned.
+
+6.
+  > const 1 (undefined `seq` 1)
+  1
+  Correct! Once again, the second argument to `const` is never evaluated,
+  even adding a call to `seq` as part of the second argument does not
+  change that.
+
+7.
+  > const undefined 1
+  undefined error
+  Correct! `undefined` is evaluated since it is the first argument to
+  `const`
+
+Make the expression bottom (using `seq` and/or bang patterns)
+
+1.
+  x = undefined
+  y = "blah"
+  main = do
+    print (snd (x,y))
+
+  using `seq`
+    x = undefined
+    y = "blah"
+    main = do
+      print (x `seq` snd (x,y))
+
+  using bang patterns (the bang pattern is in the Tup definition)
+
+    data Tup a b = Tup !a b
+
+    toTuple :: Tup a b -> (a,b)
+    toTuple (Tup a b) = (a,b)
+
+    main :: IO ()
+    main = do
+      let 
+        x = undefined
+        y = "blah"
+      
+      print . snd . toTuple $ Tup x y
+
