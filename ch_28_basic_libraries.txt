@@ -1,0 +1,276 @@
+Basic Libraries
+
+Benchmarking
+  How long does a program take to run?
+
+  Benchmarking can test a program's evaluation to Weak Head Normal Form (WHNF)
+  or to Normal Form (NF)
+
+  Weak Head Normal Form - evaluating only to the outermost data structure
+  required. 
+  eg.
+    foo :: Maybe Int
+    foo = Just (1 + 1)
+
+  would evaluation to 
+
+    Just (1 + 1)
+
+  the value inside of the `Just` would not be evaluated.
+
+  
+  Normal Form - evaluating the value inside of the outermost data structure
+  eg.
+    foo :: Maybe Int
+    foo = Just (1 + 1)
+
+  would evaluation to 
+
+    Just 2
+
+
+Aside -
+  This part isn't related to benchmarking or basic libraries, but I just want
+  to break down the way `!?` (total version of `!!`) is optimized
+
+  `!!` is the index operator
+    "abc" !! 2 == 'c'
+
+  it can throw an exception though if the index given is out of bounds.
+
+  `!?` is our safe version of `!!`
+    "abc" !? 2 == Just 'c'
+
+  the recursive definition of '!?' is:
+
+    (!?) :: [a] -> Int -> Maybe a
+    infixl 9 !?
+    _      !? n | n < 0 = Nothing
+    []     !? _         = Nothing
+    (x:_)  !? 0         = Just x
+    (_:xs) !? n         = xs !? (n-1)
+
+  and the implementation using `foldr` is
+
+    (!?) :: [a] -> Int -> Maybe a
+    infixl 9 !?
+    xs !? n
+      | n < 0 = Nothing
+      | otherwise =
+        foldr
+          (\a r t ->
+            case t of
+              0 = Just a
+              _ = r (t-1)
+          )
+          (const Nothing) xs n
+
+  the recursive definition is pretty straight-forward. The thing I want to
+  talk about is the `foldr` defintion, because there is a lot going on there
+
+  ignoring the base case, let's look at the `otherwise` case
+
+    foldr
+      (\a r t ->
+        case t of
+          0 = Just a
+          _ = r (t-1)
+      )
+      (const Nothing) xs n
+
+  there's a lot going on here.
+  off the bat,
+    1. `foldr` is given 4 arguments?
+    2. the function passed to 'foldr' takes 3 arguments?
+    3. What is `r` and what does `r (k-1)` mean?
+
+  let's look at the signatures here
+    foldr :: Foldable t => (a -> b -> b) -> b -> t a -> b
+    const :: a -> b -> a
+    const Nothing :: b -> Maybe a
+
+  and let's call the function passed to `foldr` `reduce`
+    reduce
+      :: (Num t, Eq t)
+      => a
+      -> (t -> Maybe a)
+      -> t
+      -> Maybe a
+    reduce =
+      (\a r t ->
+        case t of
+          0 = Just a
+          _ = r (t-1)
+      )
+
+  looking at the signature for `foldr`, two things are clear,
+  we expect it to be given 3 arguments, and we expect the first argument to
+  be a function that takes 2 arguments. 
+
+  Question 1, why does foldr have 4 arguments?
+  
+  Well, it doesn't actually have 4 argments, or it wouldn't compile, so it
+  must be passed three arguments, return a function, and that function is
+  then passed 1 argument.
+
+  let's apply one argument at a time to see how that happens.
+  0 args
+    foldr
+      :: Foldable t
+      => (a -> b -> b)
+      -> b
+      -> t a
+      -> b
+  
+  1 arg
+    foldr reduce
+      :: (Num t1, Eq t1, Foldable t2)
+      => (t1 -> Maybe a)
+      -> t2 a
+      -> t1
+      -> Maybe a
+
+    How did we get this?
+    
+    Well, let's look at the first argument to `foldr`
+      (a -> b -> b)
+    and let's look at the signature of `reduce`
+      reduce
+        :: (Num t, Eq t)
+        => a
+        -> (t -> Maybe a)
+        -> t
+        -> Maybe a
+
+    lining up the arguments we get
+      1st arg
+        a (in foldr) == a (in reduce)
+      2nd arg
+        b (in foldr) == (t -> Maybe a) (in reduce)
+
+      that means that the third arg to `foldr` must also be of type
+        (t -> Maybe a)
+      but doesn't `reduce` take two more arguemnts? not one?
+      it does, buuuut they are
+        -> t
+        -> Maybe a
+      or in other words
+        (t -> Maybe a)
+      which is the same as the signature of the previous arg!
+      so the signature of the first argument to `foldr` `(a -> b -> b)` works!
+
+    so now we have
+      foldr reduce
+        :: (Num t1, Eq t1, Foldable t2)
+        => (t1 -> Maybe a)
+        -> t2 a
+        -> t1
+        -> Maybe a
+
+    the next argument must be of type `(t1 -> Maybe a)`
+
+    and the next argument applied to foldr is `(const Nothing)`
+
+    const Nothing
+      :: a
+      -> Maybe a
+    
+    so that checks out
+
+    now we have
+      foldr reduce (const Nothing)
+        :: (Num t1, Eq t1, Foldable t2)
+        -> t2 a
+        -> t1
+        -> Maybe a
+    
+    this function signature looks very similar to the signature of `!?`, which
+    is good! We must be doing something right.
+
+    now we would expect our next argment to be a `Foldable`, which it is!
+
+      foldr reduce (const Nothing) "abcd"
+        :: (Num t1, Eq t1)
+        -> t1
+        -> Maybe a
+
+    now `foldr` has been applied to 3 arguments, and we see what we get,
+    Another Function! we applied 3 arguments to foldr and got another
+    function back. This new function takes 1 argument.
+
+    This explains how it looks like 4 arguments are being passed to `foldr`
+
+  Question 2, why does the function passed to `foldr` take 3 arguments?
+    in this case, `foldr` is returning a function that takes one argument, so
+    that argument is accounted for in the additional argument seen in the
+    definition of `reduce`
+
+      reduce
+        :: (Num t, Eq t)
+        => a
+        -> (t -> Maybe a)
+        -> t
+        -> Maybe a
+
+    the `t` is going to be passed in after `foldr` is fully applied, `t` is
+    going to be the index we want from the list. This variable is shown as
+    `t` in the definition of `reduce`
+
+
+  Question 3 - What is `r` and what does `r (t-1)` mean?
+
+    reduce =
+      (\a r t ->
+        case t of
+          0 = Just a
+          _ = r (t-1)
+      )
+
+    if we look at which argument `r` is, it's a function with the signature
+      (t -> Maybe a)
+
+    so
+      `r (t-1)`
+    is the invocation of that function
+
+    understanding `r` and how it is defined is key to understanding how this
+    function actually does anything.
+
+    `r` is nested function, the number of nested versions of `r` is determined
+    by the length of the list.
+
+    to visualize for a list of length 3
+
+    foldr reduce (const Nothing) "abc" 2
+
+    would end up looking kind of like this (inlining `reduce`)
+    
+    (\a = 'a'
+      r =
+        (\a = 'b'
+          r =
+            (\a = 'c'
+              r = const Nothing
+              t = 0
+              ->
+                case t of
+                  0 = Just a
+                  _ = r (t-1)
+             )
+          t = 1
+          ->
+            case t of
+              0 = Just a
+              _ = r (t-1)
+        )
+      t = 2
+      ->
+        case t of
+          0 = Just a
+          _ = r (t-1)
+    )
+             
+    we see how recursion is used to keep track of the state of the index, and
+    how (const Nothing) is being used as a base case.
+  
+

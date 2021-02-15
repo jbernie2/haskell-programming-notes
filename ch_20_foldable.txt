@@ -50,7 +50,7 @@ Maybe (Optional) instance of Foldable
   data Optional a = Yep a | Nada 
   instance Foldable Optional where
     foldr _ z Nada = z
-    foldl f z (Yep x) = f x z
+    foldr f z (Yep x) = f x z
 
     foldl _ z Nada = z
     foldl f z (Yep x) = f z x
