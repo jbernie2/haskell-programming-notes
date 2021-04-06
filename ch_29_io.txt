@@ -1,0 +1,73 @@
+IO - a type that allows for effects to occur outside of the program.
+
+IO is not the IO Monad. IO is a type that implements the Monad type class. It
+also implements other type classes.
+
+The main feature of the IO type is that it disables operation reordering and
+disables sharing. That is basically all the IO type does.
+
+Since IO interacts with the "outside world" all interactions with it are
+potentially effectful. This means that the order of the operations matter, and that
+the results of an IO operation can not be implicitly shared.
+
+Reordering example
+
+    foo :: IO String
+    foo = do
+      _ <- writeSomethingToTheWorld
+      readSomethingFromTheWorld
+
+    writeSomethingToTheWorld :: IO ()
+    readSomethingFromTheWorld :: IO String
+
+  In this example, it is clear that `writeSomethingToTheWorld` needs to be run
+  before `readSomethingFromTheWorld`. We don't know what either of these functions
+  do, but since we don't know whether the first call will influence the second.
+  They have to be done in order. The Monad abstraction forces this ordering. We
+  can re-write the above function without the `do` notation to demonstrate this.
+
+    foo' :: IO String
+    foo' = writeSomethingToTheWorld >> readSomethingFromTheWorld
+
+  `foo'` is functionally equivalent to `foo` and `>>` aka the sequence operator
+  forces the functions to be evaluated in order.
+
+Sharing example
+
+  getTime :: IO Int
+
+The expectation is that whenever `getTime` is called, it returns the current time.
+If the result of getTime was shared, it would only be evaluated once, and would
+then return the same value over and over again.
+
+The IO type disables this sharing by not representing a value, but rather a
+computation that results in a value.
+A type of `IO String`
+does not represent: a String wrapped in the IO type
+it represents: A computation that returns a string wrapped in the IO type.
+
+In this case, the computation is how to ask the runtime environment for the current
+system time.
+
+It is important to note that not all sharing is disabled in IO. Only the
+computations that are directly part of the IO action.
+
+  bar :: Int -> IO (String, String)
+  bar x = 
+    a <- getLines computeLines
+    b <- getLines computeLines
+    return (a,b)
+   where
+    computeLines :: Int -> Int
+    computeLines x' = x' + 1
+
+The value of `computeLines` will be shared between the two calls to `getLines` since
+the value of 'computeLines` does not return IO, despite being part of a function
+that does.
+
+The value of `getLines` will not be shared, since the type of `getLines` is IO
+
+Chapter Exercises:
+
+File I/O with Vigenere
+  implemented in haskell-projects/vigenere
